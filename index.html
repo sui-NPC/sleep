@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=0.5">
-  <title>睡眠記録アプリ</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>睡眠・ミス記録アプリ</title>
   <style>
     body {
       font-family: sans-serif;
@@ -50,10 +50,10 @@
     <canvas id="sleepChart"></canvas>
     <canvas id="mistakeChart"></canvas>
 
-    <button onclick="recordSleep()">おやすみ！</button>
-    <button onclick="recordWake()">おはよう！</button>
-    <button onclick="recordMistake()">ミスしちゃった…</button>
-    <button onclick="showStats()">結果を表示</button>
+    <button onclick="recordSleep()">就寝時間を記録</button>
+    <button onclick="recordWake()">起床時間を記録</button>
+    <button onclick="recordMistake()">ミスを記録</button>
+    <button onclick="showStats()">集計結果を表示</button>
 
     <h3>記録修正・削除</h3>
     <select id="recordSelect" onchange="loadRecordDetails()"></select>
@@ -267,8 +267,24 @@
     }
 
     function exportData() {
-      document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+  let output = "";
+  for (let date in data) {
+    const record = data[date];
+    if (record.sleep) {
+      const time = new Date(record.sleep).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      output += `${date}：就寝：${time}\n`;
     }
+    if (record.wake) {
+      const time = new Date(record.wake).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      output += `${date}：起床：${time}\n`;
+    }
+    if (record.mistakes !== undefined) {
+      output += `${date}：ミス：${record.mistakes}回\n`;
+    }
+  }
+  document.getElementById('output').textContent = output;
+}
+
 
     updateRecordSelect();
   </script>
