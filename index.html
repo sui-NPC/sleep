@@ -1,543 +1,276 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>睡眠・集中記録アプリ</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>睡眠・ミス記録アプリ</title>
   <style>
     body {
-      font-family: Arial, sans-serif;
-      margin: 0 1rem 2rem;
+      font-family: sans-serif;
+      margin: 0;
       padding: 0;
       background: #f9f9f9;
     }
-    h1 {
+    header {
+      padding: 1em;
       text-align: center;
-      margin-top: 1rem;
+      background: #007bff;
+      color: white;
+    }
+    .container {
+      padding: 1em;
+      max-width: 600px;
+      margin: auto;
+    }
+    button, input[type="date"], input[type="time"], input[type="number"], select {
+      margin: 0.5em 0;
+      width: 100%;
+      padding: 0.5em;
+      font-size: 1em;
     }
     canvas {
       max-width: 100%;
-      height: 300px;
-      margin: 1rem auto;
-      display: block;
     }
-    .buttons, .manual-inputs {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 1rem;
-      margin: 1rem 0;
+    #recordDetails p {
+      margin: 0.3em 0;
     }
-    button {
-      padding: 0.8rem 1.2rem;
-      font-size: 1rem;
-      cursor: pointer;
-      border-radius: 5px;
-      border: none;
-      background-color: #3a86ff;
-      color: white;
-      flex: 1 1 140px;
-      max-width: 200px;
-      min-width: 140px;
-      transition: background-color 0.3s ease;
-    }
-    button:hover {
-      background-color: #265fbc;
-    }
-    label {
-      display: flex;
-      flex-direction: column;
-      font-size: 0.9rem;
-      max-width: 220px;
-      flex: 1 1 200px;
-    }
-    input[type="datetime-local"], input[type="number"], select {
-      margin-top: 0.3rem;
-      padding: 0.3rem 0.5rem;
-      font-size: 1rem;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-      width: 100%;
-      box-sizing: border-box;
-    }
-    #recordsTable {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 1rem;
-      font-size: 0.9rem;
-    }
-    #recordsTable th, #recordsTable td {
-      border: 1px solid #ddd;
-      padding: 0.5rem;
-      text-align: center;
-      word-break: break-word;
-    }
-    #exportedData {
-      white-space: pre-wrap;
-      background: #fff;
-      border: 1px solid #ccc;
-      padding: 1rem;
-      margin-top: 1rem;
-      max-height: 200px;
-      overflow-y: auto;
-      font-family: monospace;
-      font-size: 0.85rem;
-    }
-    @media (max-width: 480px) {
-      button, label {
-        flex: 1 1 100%;
-        max-width: 100%;
+    @media (max-width: 600px) {
+      .container {
+        padding: 0.5em;
       }
-    }
-    #focusManualEdit h3 {
-      text-align: center;
-      margin-bottom: 0.5rem;
     }
   </style>
 </head>
 <body>
-  <h1>睡眠・集中記録アプリ</h1>
-  <canvas id="myChart"></canvas>
-  <div class="buttons">
-    <button id="btnSleepStart">今から寝るよ！おやすみ！</button>
-    <button id="btnSleepEnd">起きた！おはよう！</button>
-    <button id="btnFocusStart">作業はじめ！</button>
-    <button id="btnFocusEnd">作業おわり！</button>
-  </div>
-  <div class="manual-inputs">
-    <label>
-      就寝時間修正（手入力）
-      <input type="datetime-local" id="manualSleepStart" />
-    </label>
-    <label>
-      起床時間修正（手入力）
-      <input type="datetime-local" id="manualSleepEnd" />
-    </label>
-  </div>
+  <header>
+    <h1>睡眠・ミス記録アプリ</h1>
+  </header>
 
-  <div id="focusManualEdit" style="margin: 2rem 0;">
-    <h3>集中記録の修正（手入力）</h3>
-    <label>
-      修正対象を選択:
-      <select id="focusRecordSelector" style="width:100%; margin-top: 0.5rem;"></select>
-    </label>
-    <label>
-      開始時間:
-      <input type="datetime-local" id="editFocusStart" />
-    </label>
-    <label>
-      終了時間:
-      <input type="datetime-local" id="editFocusEnd" />
-    </label>
-    <label>
-      評価 (1〜10):
-      <input type="number" id="editFocusRating" min="1" max="10" />
-    </label>
-    <button id="applyFocusEdit" style="margin-top: 1rem;">修正を保存</button>
-  </div>
+  <div class="container">
+    <canvas id="sleepChart"></canvas>
+    <canvas id="mistakeChart"></canvas>
 
-  <div id="focusRatingContainer" style="display:none; margin-top: 1rem; text-align:center;">
-    <label>
-      集中評価 (1-10):
-      <input type="number" id="focusRatingInput" min="1" max="10" step="1" style="width: 60px; margin-left: 0.5rem;" />
-    </label>
-    <button id="focusRatingSubmit" style="margin-left: 1rem; padding: 0.5rem 1rem;">評価登録</button>
-  </div>
+    <button onclick="recordSleep()">就寝時間を記録</button>
+    <button onclick="recordWake()">起床時間を記録</button>
+    <button onclick="recordMistake()">ミスを記録</button>
+    <button onclick="showStats()">集計結果を表示</button>
 
-  <table id="recordsTable">
-    <thead>
-      <tr>
-        <th>種類</th>
-        <th>開始</th>
-        <th>終了</th>
-        <th>評価 (集中のみ)</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-  <button id="btnExport" style="margin-top:1rem;">記録をテキストで出力</button>
-  <pre id="exportedData"></pre>
+    <h3>記録修正・削除</h3>
+    <select id="recordSelect" onchange="loadRecordDetails()"></select>
+    <div id="recordDetails"></div>
+
+    <label>修正日付:</label>
+    <input type="date" id="editDate">
+    <label>就寝時刻:</label>
+    <input type="time" id="editSleepTime">
+    <label>起床時刻:</label>
+    <input type="time" id="editWakeTime">
+    <label>ミス回数:</label>
+    <input type="number" id="editMistakes" min="0">
+    <button onclick="editRecord()">記録を修正</button>
+
+    <h3>記録データ出力</h3>
+    <button onclick="exportData()">データ出力</button>
+    <pre id="output"></pre>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    const STORAGE_KEY = "sleepFocusRecords_v2";
-
-    let sleepRecords = [];
-    let focusRecords = [];
-    let currentFocusStart = null;
-    let currentSleepStart = null;
-
-    function loadData() {
-      const data = localStorage.getItem(STORAGE_KEY);
-      if (data) {
-        try {
-          const obj = JSON.parse(data);
-          sleepRecords = obj.sleepRecords.map(r => ({start: new Date(r.start), end: new Date(r.end)}));
-          focusRecords = obj.focusRecords.map(r => ({start: new Date(r.start), end: new Date(r.end), rating: r.rating}));
-        } catch {
-          sleepRecords = [];
-          focusRecords = [];
-        }
-      }
-    }
+    let data = JSON.parse(localStorage.getItem('records') || '{}');
+    let sleepChart = null;
+    let mistakeChart = null;
 
     function saveData() {
-      const obj = {
-        sleepRecords: sleepRecords,
-        focusRecords: focusRecords,
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+      localStorage.setItem('records', JSON.stringify(data));
+      updateRecordSelect();
     }
 
-    function timeToDecimal(date) {
-      return date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
+    function today() {
+      return new Date().toISOString().split('T')[0];
     }
 
-    function formatDate(date) {
-      if (!date) return "";
-      const y = date.getFullYear();
-      const m = String(date.getMonth() + 1).padStart(2, "0");
-      const d = String(date.getDate()).padStart(2, "0");
-      const hh = String(date.getHours()).padStart(2, "0");
-      const mm = String(date.getMinutes()).padStart(2, "0");
-      const ss = String(date.getSeconds()).padStart(2, "0");
-      return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
-    }
-
-    document.getElementById("btnSleepStart").addEventListener("click", () => {
-      currentSleepStart = new Date();
-      document.getElementById("manualSleepStart").value = currentSleepStart.toISOString().slice(0,16);
-      updateDisplay();
-    });
-
-    document.getElementById("btnSleepEnd").addEventListener("click", () => {
-      if (!currentSleepStart) {
-        alert("先に就寝時間を記録してください");
-        return;
-      }
-      const end = new Date();
-      if (end <= currentSleepStart) {
-        alert("起床時間は就寝時間より後にしてください");
-        return;
-      }
-      sleepRecords.push({ start: currentSleepStart, end });
-      currentSleepStart = null;
-      document.getElementById("manualSleepStart").value = "";
-      document.getElementById("manualSleepEnd").value = "";
+    function recordSleep() {
+      const date = today();
+      if (!data[date]) data[date] = {};
+      data[date].sleep = new Date().toISOString();
       saveData();
-      updateDisplay();
-    });
+      alert("就寝時間を記録しました");
+    }
 
-    document.getElementById("btnFocusStart").addEventListener("click", () => {
-      currentFocusStart = new Date();
-      document.getElementById("focusRatingContainer").style.display = "none";
-      updateDisplay();
-    });
+    function recordWake() {
+      const now = new Date().toISOString();
+      let latestSleepDate = null;
 
-    document.getElementById("btnFocusEnd").addEventListener("click", () => {
-      if (!currentFocusStart) {
-        alert("先に集中開始時間を記録してください");
-        return;
-      }
-      const end = new Date();
-      if (end <= currentFocusStart) {
-        alert("集中終了時間は開始時間より後にしてください");
-        return;
-      }
-      document.getElementById("focusRatingContainer").style.display = "block";
-      document.getElementById("focusRatingInput").value = "";
-      document.getElementById("focusRatingInput").focus();
-
-      document.getElementById("focusRatingSubmit").onclick = () => {
-        let rating = Number(document.getElementById("focusRatingInput").value);
-        if (!rating || rating < 1 || rating > 10) {
-          alert("1〜10の数字で評価してください");
-          return;
+      for (let date in data) {
+        if (data[date].sleep && !data[date].wake) {
+          if (!latestSleepDate || date > latestSleepDate) {
+            latestSleepDate = date;
+          }
         }
-        focusRecords.push({ start: currentFocusStart, end, rating });
-        currentFocusStart = null;
-        document.getElementById("focusRatingContainer").style.display = "none";
+      }
+
+      if (latestSleepDate) {
+        data[latestSleepDate].wake = now;
         saveData();
-        updateDisplay();
-      };
-    });
-
-    document.getElementById("manualSleepStart").addEventListener("change", (e) => {
-      const val = e.target.value;
-      if (!val) return;
-      const date = new Date(val);
-      if (isNaN(date)) {
-        alert("正しい日時を入力してください");
-        e.target.value = "";
-        return;
+        alert(`${latestSleepDate} に起床時間を記録しました`);
+      } else {
+        const date = today();
+        if (!data[date]) data[date] = {};
+        data[date].wake = now;
+        saveData();
+        alert("今日の起床時間を記録しました");
       }
-      currentSleepStart = date;
-    });
-
-    document.getElementById("manualSleepEnd").addEventListener("change", (e) => {
-      const val = e.target.value;
-      if (!val) return;
-      const date = new Date(val);
-      if (isNaN(date)) {
-        alert("正しい日時を入力してください");
-        e.target.value = "";
-        return;
-      }
-      if (!currentSleepStart) {
-        alert("先に就寝時間を入力してください");
-        e.target.value = "";
-        return;
-      }
-      if (date <= currentSleepStart) {
-        alert("起床時間は就寝時間より後にしてください");
-        e.target.value = "";
-        return;
-      }
-      sleepRecords.push({ start: currentSleepStart, end: date });
-      currentSleepStart = null;
-      document.getElementById("manualSleepStart").value = "";
-      document.getElementById("manualSleepEnd").value = "";
-      saveData();
-      updateDisplay();
-    });
-
-    // 睡眠の開始時間と終了時間の平均を計算
-    function getSleepAverageInterval() {
-      if (sleepRecords.length === 0) return null;
-
-      let sumStart = 0;
-      let sumEnd = 0;
-      sleepRecords.forEach(r => {
-        sumStart += timeToDecimal(r.start);
-        sumEnd += timeToDecimal(r.end);
-      });
-      const avgStart = sumStart / sleepRecords.length;
-      const avgEnd = sumEnd / sleepRecords.length;
-      return [avgStart, avgEnd];
     }
 
-    // グラフ更新
-    let chart = null;
-    function updateChart() {
-      const ctx = document.getElementById("myChart").getContext("2d");
+    function recordMistake() {
+      const date = today();
+      if (!data[date]) data[date] = {};
+      data[date].mistakes = (data[date].mistakes || 0) + 1;
+      saveData();
+      alert("ミスを記録しました");
+    }
 
-      // 睡眠は平均1本だけにする
-      const sleepAvg = getSleepAverageInterval();
-      let sleepData = [];
-      if (sleepAvg) {
-        sleepData = [{
-          x: [sleepAvg[0], sleepAvg[1]],
-          y: "睡眠",
-        }];
+    function calcSleepHours(sleep, wake) {
+      const s = new Date(sleep);
+      const w = new Date(wake);
+      return (w - s) / 3600000;
+    }
+
+    function showStats() {
+      const sleepLabels = [];
+      const sleepValues = [];
+      const mistakeLabels = [];
+      const mistakeValues = [];
+
+      const todayDate = new Date();
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(todayDate);
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+
+        if (data[dateStr] && data[dateStr].sleep && data[dateStr].wake) {
+          sleepLabels.push(dateStr);
+          sleepValues.push(calcSleepHours(data[dateStr].sleep, data[dateStr].wake));
+        }
+
+        if (data[dateStr] && data[dateStr].mistakes !== undefined) {
+          mistakeLabels.push(dateStr);
+          mistakeValues.push(data[dateStr].mistakes);
+        }
       }
 
-      // 集中は個別で表示
-      const focusData = focusRecords.map(r => ({
-        x: [timeToDecimal(r.start), timeToDecimal(r.end)],
-        y: "集中",
-        rating: r.rating,
-      }));
+      if (sleepChart) sleepChart.destroy();
+      if (mistakeChart) mistakeChart.destroy();
 
-      if (chart) {
-        chart.destroy();
-      }
-
-      chart = new Chart(ctx, {
-        type: "bar",
+      sleepChart = new Chart(document.getElementById('sleepChart'), {
+        type: 'bar',
         data: {
-          datasets: [
-            {
-              label: "睡眠",
-              data: sleepData,
-              backgroundColor: "rgba(58, 134, 255, 0.7)",
-              borderColor: "rgba(58, 134, 255, 1)",
-              borderWidth: 1,
-              barPercentage: 0.6,
-              categoryPercentage: 1.0,
-            },
-            {
-              label: "集中",
-              data: focusData,
-              backgroundColor: "rgba(255, 134, 58, 0.7)",
-              borderColor: "rgba(255, 134, 58, 1)",
-              borderWidth: 1,
-              barPercentage: 0.6,
-              categoryPercentage: 1.0,
-            },
-          ],
+          labels: sleepLabels,
+          datasets: [{
+            label: '睡眠時間 (時間)',
+            data: sleepValues,
+            backgroundColor: 'blue'
+          }]
         },
         options: {
-          indexAxis: "y",
-          scales: {
-            x: {
-              type: "linear",
-              position: "bottom",
-              min: 0,
-              max: 24,
-              ticks: {
-                stepSize: 1,
-                callback: val => `${val}:00`,
-              },
-              title: {
-                display: true,
-                text: "時間 (時)",
-              },
-            },
-            y: {
-              type: "category",
-              labels: ["睡眠", "集中"],
-              offset: true,
-              grid: {
-                offset: true,
-              },
-            },
-          },
-          plugins: {
-            tooltip: {
-              callbacks: {
-                label: function(context) {
-                  const d = context.raw;
-                  const label = context.dataset.label || "";
-                  if (label === "睡眠") {
-                    return `睡眠平均時間: ${d.x[0].toFixed(2)} - ${d.x[1].toFixed(2)} 時間`;
-                  } else if (label === "集中") {
-                    return `集中: ${d.x[0].toFixed(2)} - ${d.x[1].toFixed(2)} 時間, 評価: ${d.rating}`;
-                  }
-                  return "";
-                },
-              },
-            },
-          },
+          indexAxis: 'y',
+          responsive: true,
+        }
+      });
+
+      mistakeChart = new Chart(document.getElementById('mistakeChart'), {
+        type: 'bar',
+        data: {
+          labels: mistakeLabels,
+          datasets: [{
+            label: 'ミス回数',
+            data: mistakeValues,
+            backgroundColor: 'yellow'
+          }]
         },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+        }
       });
     }
 
-    // 記録表の更新
-    function updateTable() {
-      const tbody = document.querySelector("#recordsTable tbody");
-      tbody.innerHTML = "";
-
-      sleepRecords.forEach((r, i) => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>睡眠</td>
-          <td>${formatDate(r.start)}</td>
-          <td>${formatDate(r.end)}</td>
-          <td>ー</td>
-        `;
-        tbody.appendChild(tr);
-      });
-
-      focusRecords.forEach((r, i) => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>集中</td>
-          <td>${formatDate(r.start)}</td>
-          <td>${formatDate(r.end)}</td>
-          <td>${r.rating}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-    }
-
-    // 集中記録のセレクトボックス更新（修正用）
-    function updateFocusRecordSelector() {
-      const selector = document.getElementById("focusRecordSelector");
-      selector.innerHTML = "";
-      focusRecords.forEach((r, i) => {
-        const option = document.createElement("option");
-        option.value = i;
-        option.textContent = `${i + 1}. ${formatDate(r.start)} ～ ${formatDate(r.end)} (評価: ${r.rating})`;
-        selector.appendChild(option);
-      });
-
-      if (focusRecords.length > 0) {
-        selector.value = 0;
-        populateFocusEditFields(0);
-      } else {
-        document.getElementById("editFocusStart").value = "";
-        document.getElementById("editFocusEnd").value = "";
-        document.getElementById("editFocusRating").value = "";
+    function updateRecordSelect() {
+      const select = document.getElementById('recordSelect');
+      select.innerHTML = '<option value="">--日付を選択--</option>';
+      for (let date in data) {
+        select.innerHTML += `<option value="${date}">${date}</option>`;
       }
     }
 
-    // 修正フォームに値をセット
-    function populateFocusEditFields(index) {
-      const record = focusRecords[index];
-      if (!record) return;
-      document.getElementById("editFocusStart").value = record.start.toISOString().slice(0, 16);
-      document.getElementById("editFocusEnd").value = record.end.toISOString().slice(0, 16);
-      document.getElementById("editFocusRating").value = record.rating;
+    function loadRecordDetails() {
+      const date = document.getElementById('recordSelect').value;
+      const detailsDiv = document.getElementById('recordDetails');
+      if (!date || !data[date]) {
+        detailsDiv.innerHTML = '';
+        return;
+      }
+      const r = data[date];
+      const sleep = r.sleep ? new Date(r.sleep).toLocaleTimeString() : '未記録';
+      const wake = r.wake ? new Date(r.wake).toLocaleTimeString() : '未記録';
+      const mistakes = r.mistakes || 0;
+
+      detailsDiv.innerHTML = `
+        <p>就寝: ${sleep}</p>
+        <p>起床: ${wake}</p>
+        <p>ミス回数: ${mistakes}</p>
+        <button onclick="deleteSpecificRecord('${date}')">この記録を削除</button>
+      `;
+
+      document.getElementById('editDate').value = date;
+      document.getElementById('editSleepTime').value = r.sleep ? new Date(r.sleep).toISOString().substr(11,5) : '';
+      document.getElementById('editWakeTime').value = r.wake ? new Date(r.wake).toISOString().substr(11,5) : '';
+      document.getElementById('editMistakes').value = mistakes;
     }
 
-    // セレクトボックス変更時にフォーム更新
-    document.getElementById("focusRecordSelector").addEventListener("change", (e) => {
-      const index = Number(e.target.value);
-      populateFocusEditFields(index);
-    });
+    function deleteSpecificRecord(date) {
+      if (confirm(`${date} の記録を削除しますか？`)) {
+        delete data[date];
+        saveData();
+        updateRecordSelect();
+        loadRecordDetails();
+        alert('削除しました');
+      }
+    }
 
-    // 修正保存ボタン押下時の処理
-    document.getElementById("applyFocusEdit").addEventListener("click", () => {
-      const selector = document.getElementById("focusRecordSelector");
-      const index = Number(selector.value);
-      if (index < 0 || index >= focusRecords.length) {
-        alert("修正対象が選択されていません");
-        return;
-      }
-      const startStr = document.getElementById("editFocusStart").value;
-      const endStr = document.getElementById("editFocusEnd").value;
-      const ratingStr = document.getElementById("editFocusRating").value;
+    function editRecord() {
+      const oldDate = document.getElementById('recordSelect').value;
+      const newDate = document.getElementById('editDate').value;
+      const sleepTime = document.getElementById('editSleepTime').value;
+      const wakeTime = document.getElementById('editWakeTime').value;
+      const mistakes = parseInt(document.getElementById('editMistakes').value);
 
-      if (!startStr || !endStr || !ratingStr) {
-        alert("すべての項目を入力してください");
-        return;
-      }
-      const start = new Date(startStr);
-      const end = new Date(endStr);
-      const rating = Number(ratingStr);
-
-      if (isNaN(start) || isNaN(end)) {
-        alert("開始・終了日時は正しい形式で入力してください");
-        return;
-      }
-      if (start >= end) {
-        alert("終了時間は開始時間より後にしてください");
-        return;
-      }
-      if (!rating || rating < 1 || rating > 10) {
-        alert("評価は1〜10の範囲で入力してください");
+      if (!newDate) {
+        alert("日付が無効です");
         return;
       }
 
-      focusRecords[index] = { start, end, rating };
+      if (oldDate !== newDate) {
+        data[newDate] = { ...data[oldDate] };
+        delete data[oldDate];
+      }
+
+      if (sleepTime) data[newDate].sleep = `${newDate}T${sleepTime}:00.000Z`;
+      if (wakeTime) data[newDate].wake = `${newDate}T${wakeTime}:00.000Z`;
+      if (!isNaN(mistakes)) data[newDate].mistakes = mistakes;
+
       saveData();
-      updateDisplay();
-      alert("修正を保存しました");
-    });
-
-    // 記録のテキスト出力
-    document.getElementById("btnExport").addEventListener("click", () => {
-      let text = "【睡眠記録】\n";
-      sleepRecords.forEach((r, i) => {
-        text += `${i+1}. ${formatDate(r.start)} ～ ${formatDate(r.end)}\n`;
-      });
-      text += "\n【集中記録】\n";
-      focusRecords.forEach((r, i) => {
-        text += `${i+1}. ${formatDate(r.start)} ～ ${formatDate(r.end)} (評価: ${r.rating})\n`;
-      });
-      document.getElementById("exportedData").textContent = text;
-    });
-
-    // 表示更新まとめ
-    function updateDisplay() {
-      updateChart();
-      updateTable();
-      updateFocusRecordSelector();
+      updateRecordSelect();
+      document.getElementById('recordSelect').value = newDate;
+      loadRecordDetails();
+      alert("記録を修正しました");
     }
 
-    // 初期ロード
-    loadData();
-    updateDisplay();
+    function exportData() {
+      document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+    }
+
+    updateRecordSelect();
   </script>
 </body>
 </html>
