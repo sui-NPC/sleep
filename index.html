@@ -50,9 +50,9 @@
     <canvas id="sleepChart"></canvas>
     <canvas id="mistakeChart"></canvas>
 
-    <button onclick="recordSleep()">おやすみ</button>
-    <button onclick="recordWake()">おはよう</button>
-    <button onclick="recordMistake()">ミスしちゃった</button>
+    <button onclick="recordSleep()">就寝時間を記録</button>
+    <button onclick="recordWake()">起床時間を記録</button>
+    <button onclick="recordMistake()">ミスを記録</button>
     <button onclick="showStats()">集計結果を表示</button>
 
     <h3>記録修正・削除</h3>
@@ -89,38 +89,40 @@
       return new Date().toISOString().split('T')[0];
     }
 
-    function recordSleep() {
-      const date = today();
-      if (!data[date]) data[date] = {};
-      data[date].sleep = new Date().toISOString();
-      saveData();
-      alert("就寝時間を記録しました");
-    }
+   function recordSleep() {
+  const now = new Date();
+  const date = today();
+  if (!data[date]) data[date] = {};
+  data[date].sleep = now.toString();  // ローカル時刻を文字列で保存
+  saveData();
+  alert("就寝時間を記録しました");
+}
 
-    function recordWake() {
-      const now = new Date().toISOString();
-      let latestSleepDate = null;
+function recordWake() {
+  const now = new Date();
+  let latestSleepDate = null;
 
-      for (let date in data) {
-        if (data[date].sleep && !data[date].wake) {
-          if (!latestSleepDate || date > latestSleepDate) {
-            latestSleepDate = date;
-          }
-        }
-      }
-
-      if (latestSleepDate) {
-        data[latestSleepDate].wake = now;
-        saveData();
-        alert(`${latestSleepDate} に起床時間を記録しました`);
-      } else {
-        const date = today();
-        if (!data[date]) data[date] = {};
-        data[date].wake = now;
-        saveData();
-        alert("今日の起床時間を記録しました");
+  for (let date in data) {
+    if (data[date].sleep && !data[date].wake) {
+      if (!latestSleepDate || date > latestSleepDate) {
+        latestSleepDate = date;
       }
     }
+  }
+
+  if (latestSleepDate) {
+    data[latestSleepDate].wake = now.toString();
+    saveData();
+    alert(`${latestSleepDate} に起床時間を記録しました`);
+  } else {
+    const date = today();
+    if (!data[date]) data[date] = {};
+    data[date].wake = now.toString();
+    saveData();
+    alert("今日の起床時間を記録しました");
+  }
+}
+
 
     function recordMistake() {
       const date = today();
@@ -211,8 +213,9 @@
         return;
       }
       const r = data[date];
-      const sleep = r.sleep ? new Date(r.sleep).toLocaleTimeString() : '未記録';
-      const wake = r.wake ? new Date(r.wake).toLocaleTimeString() : '未記録';
+     const sleep = r.sleep ? new Date(r.sleep).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '未記録';
+const wake = r.wake ? new Date(r.wake).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '未記録';
+
       const mistakes = r.mistakes || 0;
 
       detailsDiv.innerHTML = `
@@ -255,8 +258,8 @@
         delete data[oldDate];
       }
 
-      if (sleepTime) data[newDate].sleep = `${newDate}T${sleepTime}:00.000Z`;
-      if (wakeTime) data[newDate].wake = `${newDate}T${wakeTime}:00.000Z`;
+      if (sleepTime) data[newDate].sleep = new Date(`${newDate}T${sleepTime}`).toString();
+if (wakeTime)  data[newDate].wake  = new Date(`${newDate}T${wakeTime}`).toString();
       if (!isNaN(mistakes)) data[newDate].mistakes = mistakes;
 
       saveData();
