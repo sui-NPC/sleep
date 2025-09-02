@@ -1,447 +1,215 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>睡眠ログ & PVT テスター</title>
-  <!-- Chart.js CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    :root{
-      --bg:#f6f7fb; --card:#fff; --text:#0f1724; --muted:#6b7280; --accent:#2563eb;
-    }
-    .dark{--bg:#0b1220; --card:#071226; --text:#e6eef8; --muted:#9aa7bf; --accent:#60a5fa}
-    *{box-sizing:border-box}
-    body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);}    
-    header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(0,0,0,0.06)}
-    h1{margin:0;font-size:18px}
-    .container{max-width:1100px;margin:14px auto;padding:0 12px}
-    .grid{display:grid;grid-template-columns:1fr 420px;gap:14px}
-    .card{background:var(--card);border-radius:12px;padding:12px;box-shadow:0 6px 18px rgba(9,30,66,0.06)}
-    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
-    input,select,button{font-size:15px;padding:8px 10px;border-radius:8px;border:1px solid rgba(15,23,36,0.08);outline:none}
-    .row{display:flex;gap:8px;align-items:center}
-    .muted{color:var(--muted);font-size:13px}
-    .calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
-    .day{padding:8px;border-radius:8px;min-height:64px;background:linear-gradient(180deg,rgba(0,0,0,0.01),transparent);font-size:13px}
-    .day .date{font-weight:600}
-    .sleep-badge{display:block;margin-top:6px;font-size:12px;padding:4px;border-radius:6px;background:rgba(37,99,235,0.08);color:var(--accent);}
-    .small{font-size:13px}
-    /* PVT */
-    .pvt-stage{display:flex;flex-direction:column;align-items:center;gap:12px}
-    .stimulus{width:140px;height:140px;border-radius:50%;background:#d1d5db;display:flex;align-items:center;justify-content:center;font-size:34px;color:#0f1724;user-select:none}
-    .controls{display:flex;gap:8px}
-    .stats{display:flex;gap:6px;flex-wrap:wrap}
-    .pill{padding:8px;border-radius:999px;background:rgba(0,0,0,0.04);font-size:13px}
-    /* charts */
-    .top-chart{margin-bottom:14px}
-    canvas{width:100%!important;height:260px!important}
-    footer{padding:12px;text-align:center;color:var(--muted);font-size:13px}
-    .top-controls{display:flex;gap:8px;align-items:center}
-    .flex-col{display:flex;flex-direction:column;gap:8px}
-    .danger{color:#b91c1c}
-    @media(max-width:980px){.grid{grid-template-columns:1fr}.card{padding:12px}.stimulus{width:120px;height:120px}}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>睡眠・PVT習慣アプリ</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body { font-family:sans-serif; margin:0; background:#f9f9f9; color:#333;}
+header { background:#4a90e2; color:white; text-align:center; padding:1rem;}
+section { padding:1rem;}
+.card { background:white; padding:1rem; margin:1rem; border-radius:12px; box-shadow:0 2px 5px rgba(0,0,0,0.1);}
+.feedback { margin-top:1rem; font-weight:bold; color:#e67e22;}
+canvas { max-width:100%; }
+#pvt-area { margin-top:1rem; height:200px; border:2px solid #4a90e2; border-radius:10px; display:flex; align-items:center; justify-content:center; background:#f0f8ff; font-size:2rem; user-select:none; cursor:pointer;}
+#calendar { border-collapse:collapse; width:100%; margin-top:0.5rem;}
+#calendar th, #calendar td { border:1px solid #ccc; width:14.2%; height:80px; text-align:center; vertical-align:top; cursor:pointer;}
+#calendar th { background:#eee;}
+.modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); align-items:center; justify-content:center;}
+.modal-content { background:#fff; padding:1rem; border-radius:10px; width:300px;}
+#toggle-calendar { margin-bottom:0.5rem; }
+</style>
 </head>
 <body>
-  <header>
-    <h1>睡眠記録 & PVT テスター</h1>
-    <div class="top-controls">
-      <button id="toggleDark">ダーク切替</button>
-      <button id="exportBtn">JSONエクスポート</button>
-      <button id="importBtn">JSONインポート</button>
-      <input id="fileInput" type="file" style="display:none" accept="application/json" />
-    </div>
-  </header>
+<header><h1>睡眠・集中習慣アプリ</h1></header>
 
-  <main class="container">
+<!-- グラフ -->
+<section class="card">
+<h2>グラフ</h2>
+<canvas id="dataChart"></canvas>
+</section>
 
-    <!-- 3. データ可視化 をページ上部に配置（要求に合わせて） -->
-    <section class="card top-chart">
-      <h2>日別の推移（睡眠時間 と PVT平均反応時間）</h2>
-      <p class="muted">直近30日の睡眠時間とPVT平均反応時間を同一グラフで比較します。</p>
-      <canvas id="combinedChart"></canvas>
-    </section>
+<!-- 睡眠記録 -->
+<section class="card">
+<h2>睡眠記録</h2>
+<button onclick="recordSleep()">就寝記録</button>
+<button onclick="recordWake()">起床記録</button>
+<p id="sleep-feedback" class="feedback"></p>
+</section>
 
-    <div class="grid">
-      <section class="card">
-        <h2>1. 睡眠記録</h2>
-        <p class="muted">ボタンで就寝／起床を記録できます（現在時刻を記録）。手動で時刻を編集して保存することも可能です。</p>
+<!-- PVTテスト -->
+<section class="card">
+<h2>PVTテスト</h2>
+<button onclick="startPVT()">テスト開始</button>
+<div id="pvt-area">準備中...</div>
+<p id="pvt-feedback" class="feedback"></p>
+</section>
 
-        <div class="flex-col" style="margin-top:8px">
-          <div class="row">
-            <div style="flex:1">
-              <label>日付</label>
-              <input type="date" id="sleepDate" />
-            </div>
-            <div style="display:flex;flex-direction:column;gap:6px">
-              <label>アクション</label>
-              <div class="row">
-                <button id="markBed">就寝を記録</button>
-                <button id="markWake">起床を記録</button>
-              </div>
-            </div>
-          </div>
+<!-- カレンダー修正タブ -->
+<section class="card">
+<h2>カレンダー修正</h2>
+<button id="toggle-calendar" onclick="toggleCalendar()">カレンダーを表示/非表示</button>
+<table id="calendar" style="display:none;"></table>
+</section>
 
-          <div style="margin-top:8px">
-            <label>（任意）手動編集</label>
-            <div class="row">
-              <div>
-                <input type="time" id="bedTime" />
-              </div>
-              <div>
-                <input type="time" id="wakeTime" />
-              </div>
-              <div>
-                <button id="saveSleep">手動で保存</button>
-                <button id="deleteSleep" class="danger">削除</button>
-              </div>
-            </div>
-            <div class="muted small" id="calcPreview"></div>
-          </div>
-        </div>
+<!-- モーダル -->
+<div id="edit-modal" class="modal">
+<div class="modal-content">
+<h3>データ修正</h3>
+<label>睡眠時間(h): <input type="number" step="0.1" id="edit-bed"></label><br>
+<label>PVT平均(ms): <input type="number" id="edit-pvt" min="0"></label><br>
+<button id="save-edit">保存</button>
+<button id="close-modal">閉じる</button>
+</div>
+</div>
 
-        <hr style="margin:12px 0">
-        <h3>カレンダー（過去30日）</h3>
-        <div id="calendar" class="calendar" aria-label="睡眠カレンダー"></div>
-        <hr style="margin:12px 0">
-        <h3>履歴（最近20件）</h3>
-        <div id="history"></div>
-      </section>
+<script>
+// データ管理
+let sleepHistory = JSON.parse(localStorage.getItem("sleepHistory")||"[]");
+let pvtHistory = JSON.parse(localStorage.getItem("pvtHistory")||"[]");
+let sleepTime = null;
+let selectedDate = null;
 
-      <aside class="card">
-        <h2>2. PVT（簡易）</h2>
-        <p class="muted">2〜10秒のランダム遅延後に刺激が出ます。クリックまたはスペースで反応してください。遅延（lapse）は500ms以上をカウントします。</p>
-        <div class="pvt-stage">
-          <div id="stimulus" class="stimulus">待機</div>
-          <div class="controls">
-            <button id="startPVT">テスト開始</button>
-            <button id="stopPVT">停止</button>
-            <button id="clearPVT">結果クリア</button>
-          </div>
-          <div class="stats">
-            <div class="pill">試行: <span id="trialCount">0</span></div>
-            <div class="pill">平均RT: <span id="avgRT">-</span> ms</div>
-            <div class="pill">ラプス: <span id="lapseCount">0</span></div>
-          </div>
-          <div id="feedback" class="muted small"></div>
-        </div>
+// グラフ
+const ctx = document.getElementById('dataChart').getContext('2d');
+const chart = new Chart(ctx,{
+type:'line',
+data:{labels:[], datasets:[
+  {label:'睡眠時間 (h)', data:[], borderColor:'blue', yAxisID:'y1'},
+  {label:'反応時間 (ms)', data:[], borderColor:'red', yAxisID:'y2'}
+]},
+options:{responsive:true, scales:{y1:{type:'linear',position:'left',min:0,max:12}, y2:{type:'linear',position:'right',min:0,max:1000}}}
+});
 
-        <hr style="margin:12px 0">
-        <h3>過去のセッション</h3>
-        <div id="pvtSessions"></div>
-      </aside>
-    </div>
+function updateChart(){
+let dates = [...new Set([...sleepHistory.map(d=>d.date), ...pvtHistory.map(d=>d.date)])];
+chart.data.labels = dates;
+chart.data.datasets[0].data = dates.map(d=>{let rec=sleepHistory.find(r=>r.date===d); return rec ? rec.hours : null;});
+chart.data.datasets[1].data = dates.map(d=>{let rec=pvtHistory.find(r=>r.date===d); return rec ? rec.avg : null;});
+chart.update();
+}
 
-    <section class="card" style="margin-top:14px">
-      <h2>4. ストレージ / 設定</h2>
-      <p class="muted">デフォルトはローカルストレージ。Firebaseを使うには下に設定を貼り付けてから「Firebase有効化」を押してください（任意）。</p>
-      <textarea id="firebaseConfig" placeholder="{ apiKey: \"...\", authDomain: \"...\", projectId: \"...\" }" style="width:100%;height:80px;font-family:monospace"></textarea>
-      <div style="margin-top:8px" class="row">
-        <button id="enableFirebase">Firebase有効化（実験的）</button>
-        <button id="disableFirebase">Firebase無効化</button>
-      </div>
-    </section>
-
-  </main>
-
-  <footer>作成: 睡眠ログ + PVT のシングルファイルWebアプリ</footer>
-
-  <script>
-  // --- Storage layer (localStorage by default) ---
-  let useFirebase = false;
-  let firebaseApp = null;
-
-  const STORAGE_KEY = 'sleep_pvt_data_v1';
-  function readStorage(){
-    try{
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if(!raw) return {sleep:[], pvt:[]};
-      return JSON.parse(raw);
-    }catch(e){console.error(e);return {sleep:[], pvt:[]};}
+// 睡眠記録
+function recordSleep(){ sleepTime = new Date(); document.getElementById("sleep-feedback").textContent="就寝記録しました: "+sleepTime.toLocaleTimeString();}
+function recordWake(){
+  let wakeTime = new Date();
+  if(sleepTime){
+    let diff = (wakeTime - new Date(sleepTime))/1000/3600;
+    let msg="睡眠時間: "+diff.toFixed(1)+"時間";
+    if(diff<6) msg+=" → 睡眠不足⚠️"; else if(diff>=7&&diff<=9) msg+=" → 良好👍"; else msg+=" → 長すぎ注意😴";
+    document.getElementById("sleep-feedback").textContent=msg;
+    sleepHistory.push({date:new Date().toLocaleDateString(), hours:diff});
+    localStorage.setItem("sleepHistory",JSON.stringify(sleepHistory));
+    updateChart();
   }
-  function writeStorage(state){
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }
+}
 
-  // --- Utilities ---
-  function pad(n){return n.toString().padStart(2,'0');}
-  function nowTimeHM(){ const d=new Date(); return pad(d.getHours())+':'+pad(d.getMinutes()); }
-  function toISODate(d){ return d.toISOString().slice(0,10); }
-  function parseHM(str){ if(!str) return {h:0,m:0}; const [h,m] = str.split(':').map(Number); return {h,m}; }
-  function computeSleepDuration(bed, wake){
-    const b = parseHM(bed); const w = parseHM(wake);
-    let bd = b.h*60 + b.m; let wd = w.h*60 + w.m;
-    if(wd <= bd) wd += 24*60;
-    const minutes = wd - bd; const hours = Math.floor(minutes/60); const mins = minutes%60;
-    return {minutes, hours, mins};
-  }
+// PVTテスト（15回固定、枠内クリック、個別フィードバック）
+function startPVT(){
+  const area = document.getElementById("pvt-area");
+  const feedback = document.getElementById("pvt-feedback");
+  feedback.textContent="";
+  const totalTrials = 15;
+  let trialDone = 0;
+  let trialTimes = [];
 
-  // --- DOM references ---
-  const sleepDate = document.getElementById('sleepDate');
-  const bedTime = document.getElementById('bedTime');
-  const wakeTime = document.getElementById('wakeTime');
-  const markBed = document.getElementById('markBed');
-  const markWake = document.getElementById('markWake');
-  const saveSleep = document.getElementById('saveSleep');
-  const deleteSleep = document.getElementById('deleteSleep');
-  const calcPreview = document.getElementById('calcPreview');
-  const calendarEl = document.getElementById('calendar');
-  const historyEl = document.getElementById('history');
-
-  const stimulus = document.getElementById('stimulus');
-  const startPVT = document.getElementById('startPVT');
-  const stopPVT = document.getElementById('stopPVT');
-  const clearPVT = document.getElementById('clearPVT');
-  const trialCount = document.getElementById('trialCount');
-  const avgRT = document.getElementById('avgRT');
-  const lapseCount = document.getElementById('lapseCount');
-  const feedback = document.getElementById('feedback');
-  const pvtSessions = document.getElementById('pvtSessions');
-
-  const combinedChartCtx = document.getElementById('combinedChart').getContext('2d');
-
-  const toggleDark = document.getElementById('toggleDark');
-  const exportBtn = document.getElementById('exportBtn');
-  const importBtn = document.getElementById('importBtn');
-  const fileInput = document.getElementById('fileInput');
-  const firebaseConfig = document.getElementById('firebaseConfig');
-  const enableFirebase = document.getElementById('enableFirebase');
-  const disableFirebase = document.getElementById('disableFirebase');
-
-  // --- Initialize ---
-  let state = readStorage();
-  function saveState(){ writeStorage(state); renderAll(); }
-
-  // default date to today
-  sleepDate.value = toISODate(new Date());
-
-  // preview calc
-  function previewCalc(){
-    if(!bedTime.value || !wakeTime.value) { calcPreview.textContent = '' ; return }
-    const d = computeSleepDuration(bedTime.value, wakeTime.value);
-    calcPreview.textContent = `睡眠時間: ${d.hours}時間 ${d.mins}分 (${d.minutes} 分)`;
-  }
-  bedTime.addEventListener('input', previewCalc);
-  wakeTime.addEventListener('input', previewCalc);
-
-  // --- Button-based recording ---
-  markBed.addEventListener('click', ()=>{
-    const date = sleepDate.value || toISODate(new Date());
-    const time = nowTimeHM(); bedTime.value = time; previewCalc();
-    saveSleepRecord(date, time, null);
-  });
-  markWake.addEventListener('click', ()=>{
-    const date = sleepDate.value || toISODate(new Date());
-    const time = nowTimeHM(); wakeTime.value = time; previewCalc();
-    saveSleepRecord(date, null, time);
-  });
-
-  function saveSleepRecord(date, bed, wake){
-    if(!date){ alert('日付を選択してください'); return }
-    const existing = state.sleep.find(s=>s.date===date);
-    const rec = existing ? {...existing} : {date, bed:'', wake:'', minutes:0, ts:Date.now()};
-    if(bed) rec.bed = bed;
-    if(wake) rec.wake = wake;
-    if(rec.bed && rec.wake){ const d = computeSleepDuration(rec.bed, rec.wake); rec.minutes = d.minutes; }
-    rec.ts = Date.now();
-    if(existing){ state.sleep = state.sleep.map(s=>s.date===date?rec:s); } else { state.sleep.push(rec); }
-    state.sleep.sort((a,b)=>a.date < b.date ? -1:1);
-    saveState();
-  }
-
-  // manual save
-  saveSleep.addEventListener('click', ()=>{
-    const date = sleepDate.value; if(!date){ alert('日付を選択してください'); return }
-    if(!bedTime.value && !wakeTime.value){ alert('就寝または起床の時刻を入力してください'); return }
-    saveSleepRecord(date, bedTime.value||null, wakeTime.value||null);
-  });
-  deleteSleep.addEventListener('click', ()=>{
-    if(!sleepDate.value){alert('削除する日付を選択してください');return}
-    state.sleep = state.sleep.filter(s=>s.date!==sleepDate.value); saveState();
-  });
-
-  // render calendar last 30 days
-  function renderCalendar(){
-    calendarEl.innerHTML = '';
-    const today = new Date();
-    for(let i=29;i>=0;i--){
-      const d = new Date(); d.setDate(today.getDate()-i);
-      const iso = d.toISOString().slice(0,10);
-      const dayBox = document.createElement('div'); dayBox.className='day card-like';
-      dayBox.innerHTML = `<div class="date">${d.getMonth()+1}/${d.getDate()}</div>`;
-      const rec = state.sleep.find(s=>s.date===iso);
-      if(rec && rec.minutes){
-        const b = document.createElement('span'); b.className='sleep-badge'; b.textContent = `${Math.floor(rec.minutes/60)}h ${rec.minutes%60}m`;
-        dayBox.appendChild(b);
-      } else if(rec && (rec.bed || rec.wake)){
-        const txt = `${rec.bed||'―'} → ${rec.wake||'―'}`;
-        const b = document.createElement('span'); b.className='sleep-badge'; b.textContent = txt; b.style.background='rgba(99,102,241,0.06)';
-        dayBox.appendChild(b);
-      }
-      dayBox.addEventListener('click', ()=>{
-        sleepDate.value = iso; const r = state.sleep.find(s=>s.date===iso);
-        if(r){ bedTime.value = r.bed || ''; wakeTime.value = r.wake || '' } else { bedTime.value = ''; wakeTime.value = '' }
-        previewCalc();
-      });
-      calendarEl.appendChild(dayBox);
+  function runTrial(){
+    if(trialDone>=totalTrials){
+      const avg = trialTimes.reduce((a,b)=>a+b,0)/trialTimes.length;
+      const lapses = trialTimes.filter(t=>t>500).length;
+      // 最終フィードバック
+      let finalMsg = `平均: ${avg.toFixed(1)}ms, ラプス: ${lapses}回 → `;
+      if(avg>500) finalMsg+="注意力低下⚠️"; else finalMsg+="良好👌";
+      feedback.textContent = finalMsg;
+      const today = new Date().toLocaleDateString();
+      pvtHistory.push({date:today, avg, lapses, reactions:trialTimes});
+      localStorage.setItem("pvtHistory",JSON.stringify(pvtHistory));
+      area.textContent="完了";
+      updateChart();
+      return;
     }
+
+    area.textContent="準備中...";
+    setTimeout(()=>{
+      area.textContent="クリック！";
+      const start = performance.now();
+      const clickHandler = ()=>{
+        const rt = performance.now()-start;
+        trialTimes.push(rt);
+        trialDone++;
+        // 個別フィードバック
+        let msg = `試行${trialDone}: ${rt.toFixed(0)}ms → `;
+        if(rt>500) msg+="注意力低下⚠️"; else msg+="良好👌";
+        feedback.textContent = msg;
+        area.removeEventListener("click", clickHandler);
+        runTrial();
+      };
+      area.addEventListener("click", clickHandler);
+    }, Math.random()*3000+2000);
   }
 
-  // history
-  function renderHistory(){
-    historyEl.innerHTML = '';
-    const list = [...state.sleep].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20);
-    list.forEach(s=>{
-      const el = document.createElement('div'); el.style.padding='6px 0';
-      const mins = s.minutes || 0; el.innerHTML = `<strong>${s.date}</strong> — ${s.bed||'―'} → ${s.wake||'―'} (${Math.floor(mins/60)}h ${mins%60}m)`;
-      historyEl.appendChild(el);
-    });
+  runTrial();
+}
+
+// カレンダー折りたたみ
+function toggleCalendar(){
+  const cal = document.getElementById("calendar");
+  if(cal.style.display==="none"){ cal.style.display="table"; renderCalendar(); }
+  else cal.style.display="none";
+}
+
+// カレンダー描画
+function renderCalendar(){
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  const firstDay = new Date(year,month,1).getDay();
+  const lastDate = new Date(year,month+1,0).getDate();
+  let html="<tr><th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr><tr>";
+  for(let i=0;i<firstDay;i++) html+="<td></td>";
+  for(let d=1;d<=lastDate;d++){
+    const dateStr=`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    const sleepRec = sleepHistory.find(r=>r.date===dateStr)?.hours||"";
+    const pvtRec = pvtHistory.find(r=>r.date===dateStr)?.avg||"";
+    html+=`<td data-date="${dateStr}"><strong>${d}</strong><br>${sleepRec}h<br>${pvtRec}ms</td>`;
+    if((d+firstDay)%7===0) html+="</tr><tr>";
   }
+  html+="</tr>";
+  document.getElementById("calendar").innerHTML=html;
 
-  // --- PVT implementation ---
-  let pvtRunning = false; let pvtTimer = null; let stimulusShownAt = 0; let pending = false;
-  let pvtTrials = []; // current session
-
-  function randDelayMs(){return (2000 + Math.floor(Math.random()*8000));} // 2-10s
-
-  function startNextTrial(){
-    pending = true; stimulus.textContent = '待機'; stimulus.style.background='';
-    const delay = randDelayMs();
-    pvtTimer = setTimeout(()=>{
-      pending = false; stimulusShownAt = performance.now(); stimulus.textContent = '●'; stimulus.style.background='radial-gradient(circle, #86efac, #34d399)';
-    }, delay);
-  }
-
-  function startPVTSession(){
-    if(pvtRunning) return; pvtRunning=true; pvtTrials=[]; updatePVTUI(); stimulus.textContent='準備中'; startNextTrial();
-  }
-  function stopPVTSession(save=true){
-    pvtRunning=false; clearTimeout(pvtTimer); stimulus.textContent='停止'; stimulus.style.background='';
-    if(save && pvtTrials.length>0){
-      const item = {id:Date.now(), date: (new Date()).toISOString().slice(0,10), trials:pvtTrials.slice(), avg:calcAvg(pvtTrials), lapseCount:pvtTrials.filter(t=>t.rt>=500).length, ts:Date.now()};
-      state.pvt = state.pvt || []; state.pvt.push(item); saveState();
-    }
-    pvtTrials = [];
-    updatePVTUI();
-  }
-
-  function calcAvg(trials){
-    if(!trials || trials.length===0) return null;
-    const arr = trials.map(t=>t.rt);
-    const sum = arr.reduce((a,b)=>a+b,0); return Math.round(sum/arr.length);
-  }
-
-  function updatePVTUI(){
-    trialCount.textContent = pvtTrials.length;
-    const avg = calcAvg(pvtTrials);
-    avgRT.textContent = avg? avg : '-';
-    lapseCount.textContent = pvtTrials.filter(t=>t.rt>=500).length;
-    // feedback
-    if(avg && avg>400){ feedback.textContent = '注意: 平均反応時間が遅めです。疲労や睡眠不足が考えられます。'; }
-    else if(avg && avg>300){ feedback.textContent = 'やや注意: 少し反応が遅れています。'; }
-    else if(avg){ feedback.textContent = '良好: 反応速度はおおむね良好です。'; }
-    else { feedback.textContent = ''; }
-  }
-
-  function registerResponse(){
-    if(pending) return; // ignore presses before stimulus
-    if(!stimulusShownAt) return;
-    const rt = Math.round(performance.now() - stimulusShownAt);
-    pvtTrials.push({rt, ts:Date.now()});
-    stimulusShownAt = 0; stimulus.textContent='受け取り'; stimulus.style.background='';
-    updatePVTUI();
-    if(pvtRunning){ setTimeout(()=>startNextTrial(), 400); }
-  }
-
-  // user interactions
-  document.addEventListener('keydown', (e)=>{ if(e.code==='Space') { e.preventDefault(); registerResponse(); } });
-  stimulus.addEventListener('click', ()=>{ registerResponse(); });
-  startPVT.addEventListener('click', ()=>{ startPVTSession(); });
-  stopPVT.addEventListener('click', ()=>{ stopPVTSession(true); });
-  clearPVT.addEventListener('click', ()=>{ if(confirm('PVT履歴を全て削除しますか？')){ state.pvt=[]; saveState(); } });
-
-  // render sessions
-  function renderPVTSessions(){
-    pvtSessions.innerHTML='';
-    (state.pvt||[]).slice().reverse().forEach(s=>{
-      const el = document.createElement('div'); el.style.padding='6px 0';
-      el.innerHTML = `<strong>${s.date}</strong> — 平均RT: ${s.avg} ms / ラプス: ${s.lapseCount} / 試行: ${s.trials.length}`;
-      pvtSessions.appendChild(el);
-    });
-  }
-
-  // --- Charting ---
-  let chart = null;
-  function renderChart(){
-    const today = new Date(); const labels = [];
-    for(let i=29;i>=0;i--){ const d=new Date(); d.setDate(today.getDate()-i); labels.push(d.toISOString().slice(0,10)); }
-    const sleepData = labels.map(ld=>{
-      const rec = state.sleep.find(s=>s.date===ld); return rec? Math.round(rec.minutes/60*10)/10 : null;
-    });
-    const pvtAvgMap = {};
-    (state.pvt||[]).forEach(s=>{ pvtAvgMap[s.date] = pvtAvgMap[s.date] || []; pvtAvgMap[s.date].push(s.avg); });
-    const pvtData = labels.map(ld=>{
-      const arr = pvtAvgMap[ld]; if(!arr) return null; const sum = arr.reduce((a,b)=>a+b,0); return Math.round(sum/arr.length);
-    });
-
-    const datasets = [
-      {label:'睡眠時間 (h)', data: sleepData, yAxisID:'y', spanGaps:true, tension:0.3, borderColor: getComputedStyle(document.documentElement).getPropertyValue('--accent') || '#2563eb', backgroundColor:'rgba(37,99,235,0.08)'} ,
-      {label:'PVT 平均RT (ms)', data: pvtData, yAxisID:'y2', spanGaps:true, tension:0.3, borderColor:'#f97316', backgroundColor:'rgba(249,115,22,0.06)'}
-    ];
-
-    if(chart) chart.destroy();
-    chart = new Chart(combinedChartCtx, {type:'line', data:{labels, datasets}, options:{interaction:{mode:'index',intersect:false}, scales:{y:{type:'linear',position:'left',title:{display:true,text:'睡眠時間 (h)'}}, y2:{type:'linear',position:'right',title:{display:true,text:'平均RT (ms)'},grid:{display:false}}}});
-  }
-
-  // --- Export / Import ---
-  exportBtn.addEventListener('click', ()=>{
-    const a = document.createElement('a'); const blob = new Blob([JSON.stringify(state, null, 2)],{type:'application/json'});
-    a.href = URL.createObjectURL(blob); a.download = 'sleep_pvt_backup.json'; a.click();
+  document.querySelectorAll("#calendar td[data-date]").forEach(td=>{
+    td.onclick=()=>{
+      selectedDate = td.dataset.date;
+      document.getElementById("edit-bed").value = sleepHistory.find(r=>r.date===selectedDate)?.hours||"";
+      document.getElementById("edit-pvt").value = pvtHistory.find(r=>r.date===selectedDate)?.avg||"";
+      document.getElementById("edit-modal").style.display="flex";
+    };
   });
-  importBtn.addEventListener('click', ()=> fileInput.click());
-  fileInput.addEventListener('change', (e)=>{
-    const f = e.target.files[0]; if(!f) return; const reader = new FileReader(); reader.onload = ()=>{ try{ const parsed = JSON.parse(reader.result); state = parsed; saveState(); alert('インポート完了'); }catch(err){ alert('読み取りエラー'); } } ; reader.readAsText(f);
-  });
+}
 
-  // --- Firebase (experimental) ---
-  enableFirebase.addEventListener('click', ()=>{
-    const txt = firebaseConfig.value.trim(); if(!txt){ alert('Firebase設定を貼り付けてください'); return }
-    try{
-      if(!window.firebaseInitialized){
-        const s = document.createElement('script'); s.src='https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js'; document.head.appendChild(s);
-        const s2 = document.createElement('script'); s2.src='https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js'; document.head.appendChild(s2);
-        window.firebaseInitialized = true;
-        setTimeout(()=>{ initFirebase(txt); }, 1000);
-      } else initFirebase(txt);
-    }catch(e){ alert('Firebaseの初期化に失敗しました'); console.error(e); }
-  });
-  function initFirebase(txt){
-    try{
-      const cfg = Function('return ('+txt+')')();
-      firebase.initializeApp(cfg);
-      firebaseApp = firebase; useFirebase=true; alert('Firebase有効化しました（Firestoreは未使用。今後の拡張へ）');
-    }catch(e){ alert('設定の解析に失敗しました'); console.error(e); }
+// モーダル操作
+document.getElementById("save-edit").onclick=()=>{
+  if(selectedDate){
+    const sleepVal=parseFloat(document.getElementById("edit-bed").value);
+    const pvtVal=parseInt(document.getElementById("edit-pvt").value);
+    let sIndex = sleepHistory.findIndex(r=>r.date===selectedDate);
+    if(sIndex>=0) sleepHistory[sIndex].hours=sleepVal;
+    else sleepHistory.push({date:selectedDate,hours:sleepVal});
+    let pIndex = pvtHistory.findIndex(r=>r.date===selectedDate);
+    if(pIndex>=0) pvtHistory[pIndex].avg=pvtVal;
+    else pvtHistory.push({date:selectedDate,avg:pvtVal,lapses:0,reactions:[]});
+    localStorage.setItem("sleepHistory",JSON.stringify(sleepHistory));
+    localStorage.setItem("pvtHistory",JSON.stringify(pvtHistory));
+    updateChart();
+    renderCalendar();
+    document.getElementById("edit-modal").style.display="none";
   }
-  disableFirebase.addEventListener('click', ()=>{ useFirebase=false; firebaseApp=null; alert('Firebaseを無効化しました'); });
+};
+document.getElementById("close-modal").onclick=()=>{document.getElementById("edit-modal").style.display="none";};
 
-  // --- render all ---
-  function renderAll(){ renderCalendar(); renderHistory(); renderPVTSessions(); renderChart(); }
-  renderAll();
-
-  // dark mode toggle and persist
-  function setDark(on){ if(on) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); localStorage.setItem('dark', on? '1':'0'); }
-  toggleDark.addEventListener('click', ()=>{ setDark(!document.documentElement.classList.contains('dark')); });
-  if(localStorage.getItem('dark')==='1') setDark(true);
-
-  // save state before unload
-  window.addEventListener('beforeunload', ()=>{ writeStorage(state); });
-
-  // accessibility: allow clicking stimulus when active
-  stimulus.addEventListener('mousedown', (e)=>{ if(!pending && stimulusShownAt){ registerResponse(); } });
-
-  // keep UI updated in case of changes
-  setInterval(()=>{ renderAll(); }, 5000);
-  </script>
+// 初期描画
+updateChart();
+</script>
 </body>
 </html>
