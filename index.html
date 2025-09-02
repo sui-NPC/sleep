@@ -1,295 +1,447 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>睡眠・ミス記録アプリ</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>睡眠ログ & PVT テスター</title>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body {
-      font-family: sans-serif;
-      margin: 0;
-      padding: 0;
-      background: #f9f9f9;
+    :root{
+      --bg:#f6f7fb; --card:#fff; --text:#0f1724; --muted:#6b7280; --accent:#2563eb;
     }
-    header {
-      padding: 1em;
-      text-align: center;
-      background: #007bff;
-      color: white;
-    }
-    .container {
-      padding: 1em;
-      max-width: 600px;
-      margin: auto;
-    }
-    button, input[type="date"], input[type="time"], input[type="number"], select {
-      margin: 0.5em 0;
-      width: 100%;
-      padding: 0.5em;
-      font-size: 1em;
-    }
-    canvas {
-      max-width: 100%;
-    }
-    #recordDetails p {
-      margin: 0.3em 0;
-    }
-    @media (max-width: 600px) {
-      .container {
-        padding: 0.5em;
-      }
-    }
+    .dark{--bg:#0b1220; --card:#071226; --text:#e6eef8; --muted:#9aa7bf; --accent:#60a5fa}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);}    
+    header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(0,0,0,0.06)}
+    h1{margin:0;font-size:18px}
+    .container{max-width:1100px;margin:14px auto;padding:0 12px}
+    .grid{display:grid;grid-template-columns:1fr 420px;gap:14px}
+    .card{background:var(--card);border-radius:12px;padding:12px;box-shadow:0 6px 18px rgba(9,30,66,0.06)}
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    input,select,button{font-size:15px;padding:8px 10px;border-radius:8px;border:1px solid rgba(15,23,36,0.08);outline:none}
+    .row{display:flex;gap:8px;align-items:center}
+    .muted{color:var(--muted);font-size:13px}
+    .calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+    .day{padding:8px;border-radius:8px;min-height:64px;background:linear-gradient(180deg,rgba(0,0,0,0.01),transparent);font-size:13px}
+    .day .date{font-weight:600}
+    .sleep-badge{display:block;margin-top:6px;font-size:12px;padding:4px;border-radius:6px;background:rgba(37,99,235,0.08);color:var(--accent);}
+    .small{font-size:13px}
+    /* PVT */
+    .pvt-stage{display:flex;flex-direction:column;align-items:center;gap:12px}
+    .stimulus{width:140px;height:140px;border-radius:50%;background:#d1d5db;display:flex;align-items:center;justify-content:center;font-size:34px;color:#0f1724;user-select:none}
+    .controls{display:flex;gap:8px}
+    .stats{display:flex;gap:6px;flex-wrap:wrap}
+    .pill{padding:8px;border-radius:999px;background:rgba(0,0,0,0.04);font-size:13px}
+    /* charts */
+    .top-chart{margin-bottom:14px}
+    canvas{width:100%!important;height:260px!important}
+    footer{padding:12px;text-align:center;color:var(--muted);font-size:13px}
+    .top-controls{display:flex;gap:8px;align-items:center}
+    .flex-col{display:flex;flex-direction:column;gap:8px}
+    .danger{color:#b91c1c}
+    @media(max-width:980px){.grid{grid-template-columns:1fr}.card{padding:12px}.stimulus{width:120px;height:120px}}
   </style>
 </head>
 <body>
   <header>
-    <h1>睡眠・ミス記録アプリ</h1>
+    <h1>睡眠記録 & PVT テスター</h1>
+    <div class="top-controls">
+      <button id="toggleDark">ダーク切替</button>
+      <button id="exportBtn">JSONエクスポート</button>
+      <button id="importBtn">JSONインポート</button>
+      <input id="fileInput" type="file" style="display:none" accept="application/json" />
+    </div>
   </header>
 
-  <div class="container">
-    <canvas id="sleepChart"></canvas>
-    <canvas id="mistakeChart"></canvas>
+  <main class="container">
 
-    <button onclick="recordSleep()">おやすみ</button>
-    <button onclick="recordWake()">おはよう</button>
-    <button onclick="recordMistake()">ミスしちゃった</button>
-    <button onclick="showStats()">集計結果を表示</button>
+    <!-- 3. データ可視化 をページ上部に配置（要求に合わせて） -->
+    <section class="card top-chart">
+      <h2>日別の推移（睡眠時間 と PVT平均反応時間）</h2>
+      <p class="muted">直近30日の睡眠時間とPVT平均反応時間を同一グラフで比較します。</p>
+      <canvas id="combinedChart"></canvas>
+    </section>
 
-    <h3>記録修正・削除</h3>
-    <select id="recordSelect" onchange="loadRecordDetails()"></select>
-    <div id="recordDetails"></div>
+    <div class="grid">
+      <section class="card">
+        <h2>1. 睡眠記録</h2>
+        <p class="muted">ボタンで就寝／起床を記録できます（現在時刻を記録）。手動で時刻を編集して保存することも可能です。</p>
 
-    <label>修正日付:</label>
-    <input type="date" id="editDate">
-    <label>就寝時刻:</label>
-    <input type="time" id="editSleepTime">
-    <label>起床時刻:</label>
-    <input type="time" id="editWakeTime">
-    <label>ミス回数:</label>
-    <input type="number" id="editMistakes" min="0">
-    <button onclick="editRecord()">記録を修正</button>
+        <div class="flex-col" style="margin-top:8px">
+          <div class="row">
+            <div style="flex:1">
+              <label>日付</label>
+              <input type="date" id="sleepDate" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <label>アクション</label>
+              <div class="row">
+                <button id="markBed">就寝を記録</button>
+                <button id="markWake">起床を記録</button>
+              </div>
+            </div>
+          </div>
 
-    <h3>記録データ出力</h3>
-    <button onclick="exportData()">データ出力</button>
-    <pre id="output"></pre>
-  </div>
+          <div style="margin-top:8px">
+            <label>（任意）手動編集</label>
+            <div class="row">
+              <div>
+                <input type="time" id="bedTime" />
+              </div>
+              <div>
+                <input type="time" id="wakeTime" />
+              </div>
+              <div>
+                <button id="saveSleep">手動で保存</button>
+                <button id="deleteSleep" class="danger">削除</button>
+              </div>
+            </div>
+            <div class="muted small" id="calcPreview"></div>
+          </div>
+        </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <hr style="margin:12px 0">
+        <h3>カレンダー（過去30日）</h3>
+        <div id="calendar" class="calendar" aria-label="睡眠カレンダー"></div>
+        <hr style="margin:12px 0">
+        <h3>履歴（最近20件）</h3>
+        <div id="history"></div>
+      </section>
+
+      <aside class="card">
+        <h2>2. PVT（簡易）</h2>
+        <p class="muted">2〜10秒のランダム遅延後に刺激が出ます。クリックまたはスペースで反応してください。遅延（lapse）は500ms以上をカウントします。</p>
+        <div class="pvt-stage">
+          <div id="stimulus" class="stimulus">待機</div>
+          <div class="controls">
+            <button id="startPVT">テスト開始</button>
+            <button id="stopPVT">停止</button>
+            <button id="clearPVT">結果クリア</button>
+          </div>
+          <div class="stats">
+            <div class="pill">試行: <span id="trialCount">0</span></div>
+            <div class="pill">平均RT: <span id="avgRT">-</span> ms</div>
+            <div class="pill">ラプス: <span id="lapseCount">0</span></div>
+          </div>
+          <div id="feedback" class="muted small"></div>
+        </div>
+
+        <hr style="margin:12px 0">
+        <h3>過去のセッション</h3>
+        <div id="pvtSessions"></div>
+      </aside>
+    </div>
+
+    <section class="card" style="margin-top:14px">
+      <h2>4. ストレージ / 設定</h2>
+      <p class="muted">デフォルトはローカルストレージ。Firebaseを使うには下に設定を貼り付けてから「Firebase有効化」を押してください（任意）。</p>
+      <textarea id="firebaseConfig" placeholder="{ apiKey: \"...\", authDomain: \"...\", projectId: \"...\" }" style="width:100%;height:80px;font-family:monospace"></textarea>
+      <div style="margin-top:8px" class="row">
+        <button id="enableFirebase">Firebase有効化（実験的）</button>
+        <button id="disableFirebase">Firebase無効化</button>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>作成: 睡眠ログ + PVT のシングルファイルWebアプリ</footer>
+
   <script>
-    let data = JSON.parse(localStorage.getItem('records') || '{}');
-    let sleepChart = null;
-    let mistakeChart = null;
+  // --- Storage layer (localStorage by default) ---
+  let useFirebase = false;
+  let firebaseApp = null;
 
-    function saveData() {
-      localStorage.setItem('records', JSON.stringify(data));
-      updateRecordSelect();
-    }
-
-    function today() {
-      return new Date().toISOString().split('T')[0];
-    }
-
-   function recordSleep() {
-  const now = new Date();
-  const date = today();
-  if (!data[date]) data[date] = {};
-  data[date].sleep = now.toString();  // ローカル時刻を文字列で保存
-  saveData();
-  alert("就寝時間を記録しました");
-}
-
-function recordWake() {
-  const now = new Date();
-  let latestSleepDate = null;
-
-  for (let date in data) {
-    if (data[date].sleep && !data[date].wake) {
-      if (!latestSleepDate || date > latestSleepDate) {
-        latestSleepDate = date;
-      }
-    }
+  const STORAGE_KEY = 'sleep_pvt_data_v1';
+  function readStorage(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return {sleep:[], pvt:[]};
+      return JSON.parse(raw);
+    }catch(e){console.error(e);return {sleep:[], pvt:[]};}
+  }
+  function writeStorage(state){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 
-  if (latestSleepDate) {
-    data[latestSleepDate].wake = now.toString();
-    saveData();
-    alert(`${latestSleepDate} に起床時間を記録しました`);
-  } else {
-    const date = today();
-    if (!data[date]) data[date] = {};
-    data[date].wake = now.toString();
-    saveData();
-    alert("今日の起床時間を記録しました");
+  // --- Utilities ---
+  function pad(n){return n.toString().padStart(2,'0');}
+  function nowTimeHM(){ const d=new Date(); return pad(d.getHours())+':'+pad(d.getMinutes()); }
+  function toISODate(d){ return d.toISOString().slice(0,10); }
+  function parseHM(str){ if(!str) return {h:0,m:0}; const [h,m] = str.split(':').map(Number); return {h,m}; }
+  function computeSleepDuration(bed, wake){
+    const b = parseHM(bed); const w = parseHM(wake);
+    let bd = b.h*60 + b.m; let wd = w.h*60 + w.m;
+    if(wd <= bd) wd += 24*60;
+    const minutes = wd - bd; const hours = Math.floor(minutes/60); const mins = minutes%60;
+    return {minutes, hours, mins};
   }
-}
 
+  // --- DOM references ---
+  const sleepDate = document.getElementById('sleepDate');
+  const bedTime = document.getElementById('bedTime');
+  const wakeTime = document.getElementById('wakeTime');
+  const markBed = document.getElementById('markBed');
+  const markWake = document.getElementById('markWake');
+  const saveSleep = document.getElementById('saveSleep');
+  const deleteSleep = document.getElementById('deleteSleep');
+  const calcPreview = document.getElementById('calcPreview');
+  const calendarEl = document.getElementById('calendar');
+  const historyEl = document.getElementById('history');
 
-    function recordMistake() {
-      const date = today();
-      if (!data[date]) data[date] = {};
-      data[date].mistakes = (data[date].mistakes || 0) + 1;
-      saveData();
-      alert("ミスを記録しました");
-    }
+  const stimulus = document.getElementById('stimulus');
+  const startPVT = document.getElementById('startPVT');
+  const stopPVT = document.getElementById('stopPVT');
+  const clearPVT = document.getElementById('clearPVT');
+  const trialCount = document.getElementById('trialCount');
+  const avgRT = document.getElementById('avgRT');
+  const lapseCount = document.getElementById('lapseCount');
+  const feedback = document.getElementById('feedback');
+  const pvtSessions = document.getElementById('pvtSessions');
 
-    function calcSleepHours(sleep, wake) {
-      const s = new Date(sleep);
-      const w = new Date(wake);
-      return (w - s) / 3600000;
-    }
+  const combinedChartCtx = document.getElementById('combinedChart').getContext('2d');
 
-    function showStats() {
-      const sleepLabels = [];
-      const sleepValues = [];
-      const mistakeLabels = [];
-      const mistakeValues = [];
+  const toggleDark = document.getElementById('toggleDark');
+  const exportBtn = document.getElementById('exportBtn');
+  const importBtn = document.getElementById('importBtn');
+  const fileInput = document.getElementById('fileInput');
+  const firebaseConfig = document.getElementById('firebaseConfig');
+  const enableFirebase = document.getElementById('enableFirebase');
+  const disableFirebase = document.getElementById('disableFirebase');
 
-      const todayDate = new Date();
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(todayDate);
-        d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
+  // --- Initialize ---
+  let state = readStorage();
+  function saveState(){ writeStorage(state); renderAll(); }
 
-        if (data[dateStr] && data[dateStr].sleep && data[dateStr].wake) {
-          sleepLabels.push(dateStr);
-          sleepValues.push(calcSleepHours(data[dateStr].sleep, data[dateStr].wake));
-        }
+  // default date to today
+  sleepDate.value = toISODate(new Date());
 
-        if (data[dateStr] && data[dateStr].mistakes !== undefined) {
-          mistakeLabels.push(dateStr);
-          mistakeValues.push(data[dateStr].mistakes);
-        }
+  // preview calc
+  function previewCalc(){
+    if(!bedTime.value || !wakeTime.value) { calcPreview.textContent = '' ; return }
+    const d = computeSleepDuration(bedTime.value, wakeTime.value);
+    calcPreview.textContent = `睡眠時間: ${d.hours}時間 ${d.mins}分 (${d.minutes} 分)`;
+  }
+  bedTime.addEventListener('input', previewCalc);
+  wakeTime.addEventListener('input', previewCalc);
+
+  // --- Button-based recording ---
+  markBed.addEventListener('click', ()=>{
+    const date = sleepDate.value || toISODate(new Date());
+    const time = nowTimeHM(); bedTime.value = time; previewCalc();
+    saveSleepRecord(date, time, null);
+  });
+  markWake.addEventListener('click', ()=>{
+    const date = sleepDate.value || toISODate(new Date());
+    const time = nowTimeHM(); wakeTime.value = time; previewCalc();
+    saveSleepRecord(date, null, time);
+  });
+
+  function saveSleepRecord(date, bed, wake){
+    if(!date){ alert('日付を選択してください'); return }
+    const existing = state.sleep.find(s=>s.date===date);
+    const rec = existing ? {...existing} : {date, bed:'', wake:'', minutes:0, ts:Date.now()};
+    if(bed) rec.bed = bed;
+    if(wake) rec.wake = wake;
+    if(rec.bed && rec.wake){ const d = computeSleepDuration(rec.bed, rec.wake); rec.minutes = d.minutes; }
+    rec.ts = Date.now();
+    if(existing){ state.sleep = state.sleep.map(s=>s.date===date?rec:s); } else { state.sleep.push(rec); }
+    state.sleep.sort((a,b)=>a.date < b.date ? -1:1);
+    saveState();
+  }
+
+  // manual save
+  saveSleep.addEventListener('click', ()=>{
+    const date = sleepDate.value; if(!date){ alert('日付を選択してください'); return }
+    if(!bedTime.value && !wakeTime.value){ alert('就寝または起床の時刻を入力してください'); return }
+    saveSleepRecord(date, bedTime.value||null, wakeTime.value||null);
+  });
+  deleteSleep.addEventListener('click', ()=>{
+    if(!sleepDate.value){alert('削除する日付を選択してください');return}
+    state.sleep = state.sleep.filter(s=>s.date!==sleepDate.value); saveState();
+  });
+
+  // render calendar last 30 days
+  function renderCalendar(){
+    calendarEl.innerHTML = '';
+    const today = new Date();
+    for(let i=29;i>=0;i--){
+      const d = new Date(); d.setDate(today.getDate()-i);
+      const iso = d.toISOString().slice(0,10);
+      const dayBox = document.createElement('div'); dayBox.className='day card-like';
+      dayBox.innerHTML = `<div class="date">${d.getMonth()+1}/${d.getDate()}</div>`;
+      const rec = state.sleep.find(s=>s.date===iso);
+      if(rec && rec.minutes){
+        const b = document.createElement('span'); b.className='sleep-badge'; b.textContent = `${Math.floor(rec.minutes/60)}h ${rec.minutes%60}m`;
+        dayBox.appendChild(b);
+      } else if(rec && (rec.bed || rec.wake)){
+        const txt = `${rec.bed||'―'} → ${rec.wake||'―'}`;
+        const b = document.createElement('span'); b.className='sleep-badge'; b.textContent = txt; b.style.background='rgba(99,102,241,0.06)';
+        dayBox.appendChild(b);
       }
-
-      if (sleepChart) sleepChart.destroy();
-      if (mistakeChart) mistakeChart.destroy();
-
-      sleepChart = new Chart(document.getElementById('sleepChart'), {
-        type: 'bar',
-        data: {
-          labels: sleepLabels,
-          datasets: [{
-            label: '睡眠時間 (時間)',
-            data: sleepValues,
-            backgroundColor: 'blue'
-          }]
-        },
-        options: {
-          indexAxis: 'y',
-          responsive: true,
-        }
+      dayBox.addEventListener('click', ()=>{
+        sleepDate.value = iso; const r = state.sleep.find(s=>s.date===iso);
+        if(r){ bedTime.value = r.bed || ''; wakeTime.value = r.wake || '' } else { bedTime.value = ''; wakeTime.value = '' }
+        previewCalc();
       });
-
-      mistakeChart = new Chart(document.getElementById('mistakeChart'), {
-        type: 'bar',
-        data: {
-          labels: mistakeLabels,
-          datasets: [{
-            label: 'ミス回数',
-            data: mistakeValues,
-            backgroundColor: 'yellow'
-          }]
-        },
-        options: {
-          indexAxis: 'y',
-          responsive: true,
-        }
-      });
-    }
-
-    function updateRecordSelect() {
-      const select = document.getElementById('recordSelect');
-      select.innerHTML = '<option value="">--日付を選択--</option>';
-      for (let date in data) {
-        select.innerHTML += `<option value="${date}">${date}</option>`;
-      }
-    }
-
-    function loadRecordDetails() {
-      const date = document.getElementById('recordSelect').value;
-      const detailsDiv = document.getElementById('recordDetails');
-      if (!date || !data[date]) {
-        detailsDiv.innerHTML = '';
-        return;
-      }
-      const r = data[date];
-     const sleep = r.sleep ? new Date(r.sleep).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '未記録';
-const wake = r.wake ? new Date(r.wake).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '未記録';
-
-      const mistakes = r.mistakes || 0;
-
-      detailsDiv.innerHTML = `
-        <p>就寝: ${sleep}</p>
-        <p>起床: ${wake}</p>
-        <p>ミス回数: ${mistakes}</p>
-        <button onclick="deleteSpecificRecord('${date}')">この記録を削除</button>
-      `;
-
-      document.getElementById('editDate').value = date;
-      document.getElementById('editSleepTime').value = r.sleep ? new Date(r.sleep).toISOString().substr(11,5) : '';
-      document.getElementById('editWakeTime').value = r.wake ? new Date(r.wake).toISOString().substr(11,5) : '';
-      document.getElementById('editMistakes').value = mistakes;
-    }
-
-    function deleteSpecificRecord(date) {
-      if (confirm(`${date} の記録を削除しますか？`)) {
-        delete data[date];
-        saveData();
-        updateRecordSelect();
-        loadRecordDetails();
-        alert('削除しました');
-      }
-    }
-
-    function editRecord() {
-      const oldDate = document.getElementById('recordSelect').value;
-      const newDate = document.getElementById('editDate').value;
-      const sleepTime = document.getElementById('editSleepTime').value;
-      const wakeTime = document.getElementById('editWakeTime').value;
-      const mistakes = parseInt(document.getElementById('editMistakes').value);
-
-      if (!newDate) {
-        alert("日付が無効です");
-        return;
-      }
-
-      if (oldDate !== newDate) {
-        data[newDate] = { ...data[oldDate] };
-        delete data[oldDate];
-      }
-
-      if (sleepTime) data[newDate].sleep = new Date(`${newDate}T${sleepTime}`).toString();
-if (wakeTime)  data[newDate].wake  = new Date(`${newDate}T${wakeTime}`).toString();
-      if (!isNaN(mistakes)) data[newDate].mistakes = mistakes;
-
-      saveData();
-      updateRecordSelect();
-      document.getElementById('recordSelect').value = newDate;
-      loadRecordDetails();
-      alert("記録を修正しました");
-    }
-
-    function exportData() {
-  let output = "";
-  for (let date in data) {
-    const record = data[date];
-    if (record.sleep) {
-      const time = new Date(record.sleep).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      output += `${date}：就寝：${time}\n`;
-    }
-    if (record.wake) {
-      const time = new Date(record.wake).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      output += `${date}：起床：${time}\n`;
-    }
-    if (record.mistakes !== undefined) {
-      output += `${date}：ミス：${record.mistakes}回\n`;
+      calendarEl.appendChild(dayBox);
     }
   }
-  document.getElementById('output').textContent = output;
-}
 
+  // history
+  function renderHistory(){
+    historyEl.innerHTML = '';
+    const list = [...state.sleep].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20);
+    list.forEach(s=>{
+      const el = document.createElement('div'); el.style.padding='6px 0';
+      const mins = s.minutes || 0; el.innerHTML = `<strong>${s.date}</strong> — ${s.bed||'―'} → ${s.wake||'―'} (${Math.floor(mins/60)}h ${mins%60}m)`;
+      historyEl.appendChild(el);
+    });
+  }
 
-    updateRecordSelect();
+  // --- PVT implementation ---
+  let pvtRunning = false; let pvtTimer = null; let stimulusShownAt = 0; let pending = false;
+  let pvtTrials = []; // current session
+
+  function randDelayMs(){return (2000 + Math.floor(Math.random()*8000));} // 2-10s
+
+  function startNextTrial(){
+    pending = true; stimulus.textContent = '待機'; stimulus.style.background='';
+    const delay = randDelayMs();
+    pvtTimer = setTimeout(()=>{
+      pending = false; stimulusShownAt = performance.now(); stimulus.textContent = '●'; stimulus.style.background='radial-gradient(circle, #86efac, #34d399)';
+    }, delay);
+  }
+
+  function startPVTSession(){
+    if(pvtRunning) return; pvtRunning=true; pvtTrials=[]; updatePVTUI(); stimulus.textContent='準備中'; startNextTrial();
+  }
+  function stopPVTSession(save=true){
+    pvtRunning=false; clearTimeout(pvtTimer); stimulus.textContent='停止'; stimulus.style.background='';
+    if(save && pvtTrials.length>0){
+      const item = {id:Date.now(), date: (new Date()).toISOString().slice(0,10), trials:pvtTrials.slice(), avg:calcAvg(pvtTrials), lapseCount:pvtTrials.filter(t=>t.rt>=500).length, ts:Date.now()};
+      state.pvt = state.pvt || []; state.pvt.push(item); saveState();
+    }
+    pvtTrials = [];
+    updatePVTUI();
+  }
+
+  function calcAvg(trials){
+    if(!trials || trials.length===0) return null;
+    const arr = trials.map(t=>t.rt);
+    const sum = arr.reduce((a,b)=>a+b,0); return Math.round(sum/arr.length);
+  }
+
+  function updatePVTUI(){
+    trialCount.textContent = pvtTrials.length;
+    const avg = calcAvg(pvtTrials);
+    avgRT.textContent = avg? avg : '-';
+    lapseCount.textContent = pvtTrials.filter(t=>t.rt>=500).length;
+    // feedback
+    if(avg && avg>400){ feedback.textContent = '注意: 平均反応時間が遅めです。疲労や睡眠不足が考えられます。'; }
+    else if(avg && avg>300){ feedback.textContent = 'やや注意: 少し反応が遅れています。'; }
+    else if(avg){ feedback.textContent = '良好: 反応速度はおおむね良好です。'; }
+    else { feedback.textContent = ''; }
+  }
+
+  function registerResponse(){
+    if(pending) return; // ignore presses before stimulus
+    if(!stimulusShownAt) return;
+    const rt = Math.round(performance.now() - stimulusShownAt);
+    pvtTrials.push({rt, ts:Date.now()});
+    stimulusShownAt = 0; stimulus.textContent='受け取り'; stimulus.style.background='';
+    updatePVTUI();
+    if(pvtRunning){ setTimeout(()=>startNextTrial(), 400); }
+  }
+
+  // user interactions
+  document.addEventListener('keydown', (e)=>{ if(e.code==='Space') { e.preventDefault(); registerResponse(); } });
+  stimulus.addEventListener('click', ()=>{ registerResponse(); });
+  startPVT.addEventListener('click', ()=>{ startPVTSession(); });
+  stopPVT.addEventListener('click', ()=>{ stopPVTSession(true); });
+  clearPVT.addEventListener('click', ()=>{ if(confirm('PVT履歴を全て削除しますか？')){ state.pvt=[]; saveState(); } });
+
+  // render sessions
+  function renderPVTSessions(){
+    pvtSessions.innerHTML='';
+    (state.pvt||[]).slice().reverse().forEach(s=>{
+      const el = document.createElement('div'); el.style.padding='6px 0';
+      el.innerHTML = `<strong>${s.date}</strong> — 平均RT: ${s.avg} ms / ラプス: ${s.lapseCount} / 試行: ${s.trials.length}`;
+      pvtSessions.appendChild(el);
+    });
+  }
+
+  // --- Charting ---
+  let chart = null;
+  function renderChart(){
+    const today = new Date(); const labels = [];
+    for(let i=29;i>=0;i--){ const d=new Date(); d.setDate(today.getDate()-i); labels.push(d.toISOString().slice(0,10)); }
+    const sleepData = labels.map(ld=>{
+      const rec = state.sleep.find(s=>s.date===ld); return rec? Math.round(rec.minutes/60*10)/10 : null;
+    });
+    const pvtAvgMap = {};
+    (state.pvt||[]).forEach(s=>{ pvtAvgMap[s.date] = pvtAvgMap[s.date] || []; pvtAvgMap[s.date].push(s.avg); });
+    const pvtData = labels.map(ld=>{
+      const arr = pvtAvgMap[ld]; if(!arr) return null; const sum = arr.reduce((a,b)=>a+b,0); return Math.round(sum/arr.length);
+    });
+
+    const datasets = [
+      {label:'睡眠時間 (h)', data: sleepData, yAxisID:'y', spanGaps:true, tension:0.3, borderColor: getComputedStyle(document.documentElement).getPropertyValue('--accent') || '#2563eb', backgroundColor:'rgba(37,99,235,0.08)'} ,
+      {label:'PVT 平均RT (ms)', data: pvtData, yAxisID:'y2', spanGaps:true, tension:0.3, borderColor:'#f97316', backgroundColor:'rgba(249,115,22,0.06)'}
+    ];
+
+    if(chart) chart.destroy();
+    chart = new Chart(combinedChartCtx, {type:'line', data:{labels, datasets}, options:{interaction:{mode:'index',intersect:false}, scales:{y:{type:'linear',position:'left',title:{display:true,text:'睡眠時間 (h)'}}, y2:{type:'linear',position:'right',title:{display:true,text:'平均RT (ms)'},grid:{display:false}}}});
+  }
+
+  // --- Export / Import ---
+  exportBtn.addEventListener('click', ()=>{
+    const a = document.createElement('a'); const blob = new Blob([JSON.stringify(state, null, 2)],{type:'application/json'});
+    a.href = URL.createObjectURL(blob); a.download = 'sleep_pvt_backup.json'; a.click();
+  });
+  importBtn.addEventListener('click', ()=> fileInput.click());
+  fileInput.addEventListener('change', (e)=>{
+    const f = e.target.files[0]; if(!f) return; const reader = new FileReader(); reader.onload = ()=>{ try{ const parsed = JSON.parse(reader.result); state = parsed; saveState(); alert('インポート完了'); }catch(err){ alert('読み取りエラー'); } } ; reader.readAsText(f);
+  });
+
+  // --- Firebase (experimental) ---
+  enableFirebase.addEventListener('click', ()=>{
+    const txt = firebaseConfig.value.trim(); if(!txt){ alert('Firebase設定を貼り付けてください'); return }
+    try{
+      if(!window.firebaseInitialized){
+        const s = document.createElement('script'); s.src='https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js'; document.head.appendChild(s);
+        const s2 = document.createElement('script'); s2.src='https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js'; document.head.appendChild(s2);
+        window.firebaseInitialized = true;
+        setTimeout(()=>{ initFirebase(txt); }, 1000);
+      } else initFirebase(txt);
+    }catch(e){ alert('Firebaseの初期化に失敗しました'); console.error(e); }
+  });
+  function initFirebase(txt){
+    try{
+      const cfg = Function('return ('+txt+')')();
+      firebase.initializeApp(cfg);
+      firebaseApp = firebase; useFirebase=true; alert('Firebase有効化しました（Firestoreは未使用。今後の拡張へ）');
+    }catch(e){ alert('設定の解析に失敗しました'); console.error(e); }
+  }
+  disableFirebase.addEventListener('click', ()=>{ useFirebase=false; firebaseApp=null; alert('Firebaseを無効化しました'); });
+
+  // --- render all ---
+  function renderAll(){ renderCalendar(); renderHistory(); renderPVTSessions(); renderChart(); }
+  renderAll();
+
+  // dark mode toggle and persist
+  function setDark(on){ if(on) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); localStorage.setItem('dark', on? '1':'0'); }
+  toggleDark.addEventListener('click', ()=>{ setDark(!document.documentElement.classList.contains('dark')); });
+  if(localStorage.getItem('dark')==='1') setDark(true);
+
+  // save state before unload
+  window.addEventListener('beforeunload', ()=>{ writeStorage(state); });
+
+  // accessibility: allow clicking stimulus when active
+  stimulus.addEventListener('mousedown', (e)=>{ if(!pending && stimulusShownAt){ registerResponse(); } });
+
+  // keep UI updated in case of changes
+  setInterval(()=>{ renderAll(); }, 5000);
   </script>
 </body>
 </html>
