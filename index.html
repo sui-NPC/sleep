@@ -19,9 +19,28 @@ canvas { max-width:100%; }
 .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); align-items:center; justify-content:center;}
 .modal-content { background:#fff; padding:1rem; border-radius:10px; width:300px;}
 #toggle-calendar { margin-bottom:0.5rem; }
+button {
+  padding: 1rem 1.5rem; font-size: 1.2rem; border-radius: 8px; border: none;
+  background: #4a90e2; color: white; cursor: pointer; margin: 0.5rem 0; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+button:hover { background: #357ab8; }
+
+/* 今日PVTリマインド */
+#today-pvt-reminder {
+  display:none; background:#ffcc00; color:#000; text-align:center; padding:1rem;
+  font-weight:bold; font-size:1.2rem; position:fixed; top:0; width:100%; z-index:1000;
+}
+#today-pvt-reminder button { background:#e74c3c; color:white; padding:0.5rem 1rem; font-weight:bold; margin-left:1rem; border:none; border-radius:5px; cursor:pointer; }
 </style>
 </head>
 <body>
+
+<!-- 今日のPVTリマインド -->
+<div id="today-pvt-reminder">
+  今日のPVTテストをまだ実施していません！
+  <button onclick="startPVT()">今すぐテスト開始</button>
+</div>
+
 <header><h1>睡眠・集中習慣アプリ</h1></header>
 
 <!-- グラフ -->
@@ -40,7 +59,7 @@ canvas { max-width:100%; }
 
 <!-- PVTテスト -->
 <section class="card">
-<h2>PVTテスト</h2>
+<h2>反応速度テスト</h2>
 <button onclick="startPVT()">テスト開始</button>
 <div id="pvt-area">準備中...</div>
 <p id="pvt-feedback" class="feedback"></p>
@@ -48,9 +67,11 @@ canvas { max-width:100%; }
 
 <!-- カレンダー修正タブ -->
 <section class="card">
-<h2>カレンダー修正</h2>
-<button id="toggle-calendar" onclick="toggleCalendar()">カレンダーを表示/非表示</button>
-<table id="calendar" style="display:none;"></table>
+  <h2>カレンダー修正</h2>
+  <button id="toggle-calendar" onclick="toggleCalendar()">カレンダーを表示/非表示</button>
+  <table id="calendar" style="display:none;"></table>
+  <br>
+  <button id="clear-data" style="background:#e74c3c; color:white; font-weight:bold;">全データ削除</button>
 </section>
 
 <!-- モーダル -->
@@ -60,6 +81,7 @@ canvas { max-width:100%; }
 <label>睡眠時間(h): <input type="number" step="0.1" id="edit-bed"></label><br>
 <label>PVT平均(ms): <input type="number" id="edit-pvt" min="0"></label><br>
 <button id="save-edit">保存</button>
+<button id="delete-entry" style="background:#e74c3c; color:white;">削除</button>
 <button id="close-modal">閉じる</button>
 </div>
 </div>
@@ -70,6 +92,7 @@ let sleepHistory = JSON.parse(localStorage.getItem("sleepHistory")||"[]");
 let pvtHistory = JSON.parse(localStorage.getItem("pvtHistory")||"[]");
 let sleepTime = null;
 let selectedDate = null;
+function getDateString(date){ return date.toISOString().split("T")[0]; }
 
 // グラフ
 const ctx = document.getElementById('dataChart').getContext('2d');
@@ -81,13 +104,16 @@ data:{labels:[], datasets:[
 ]},
 options:{responsive:true, scales:{y1:{type:'linear',position:'left',min:0,max:12}, y2:{type:'linear',position:'right',min:0,max:1000}}}
 });
-
 function updateChart(){
-let dates = [...new Set([...sleepHistory.map(d=>d.date), ...pvtHistory.map(d=>d.date)])];
-chart.data.labels = dates;
-chart.data.datasets[0].data = dates.map(d=>{let rec=sleepHistory.find(r=>r.date===d); return rec ? rec.hours : null;});
-chart.data.datasets[1].data = dates.map(d=>{let rec=pvtHistory.find(r=>r.date===d); return rec ? rec.avg : null;});
-chart.update();
+  let dates = [...new Set([
+    ...sleepHistory.filter(r => r.hours != null && r.hours !== 0).map(r=>r.date),
+    ...pvtHistory.filter(r => r.avg != null && r.avg !== 0).map(r=>r.date)
+  ])];
+  dates.sort((a,b)=> new Date(a) - new Date(b));
+  chart.data.labels = dates;
+  chart.data.datasets[0].data = dates.map(d=>{ let rec = sleepHistory.find(r=>r.date===d); return rec ? rec.hours : null; });
+  chart.data.datasets[1].data = dates.map(d=>{ let rec = pvtHistory.find(r=>r.date===d); return rec ? rec.avg : null; });
+  chart.update();
 }
 
 // 睡眠記録
@@ -95,41 +121,37 @@ function recordSleep(){ sleepTime = new Date(); document.getElementById("sleep-f
 function recordWake(){
   let wakeTime = new Date();
   if(sleepTime){
-    let diff = (wakeTime - new Date(sleepTime))/1000/3600;
+    let diff = (wakeTime - sleepTime)/1000/3600;
     let msg="睡眠時間: "+diff.toFixed(1)+"時間";
     if(diff<6) msg+=" → 睡眠不足⚠️"; else if(diff>=7&&diff<=9) msg+=" → 良好👍"; else msg+=" → 長すぎ注意😴";
     document.getElementById("sleep-feedback").textContent=msg;
-    sleepHistory.push({date:new Date().toLocaleDateString(), hours:diff});
+    sleepHistory.push({date:getDateString(new Date()), hours:diff});
     localStorage.setItem("sleepHistory",JSON.stringify(sleepHistory));
     updateChart();
+    showDailyPVTReminder();
   }
 }
 
-// PVTテスト（15回固定、枠内クリック、個別フィードバック）
+// PVTテスト
 function startPVT(){
   const area = document.getElementById("pvt-area");
   const feedback = document.getElementById("pvt-feedback");
-  feedback.textContent="";
-  const totalTrials = 15;
-  let trialDone = 0;
-  let trialTimes = [];
-
+  feedback.textContent=""; let totalTrials=15, trialDone=0, trialTimes=[];
   function runTrial(){
     if(trialDone>=totalTrials){
       const avg = trialTimes.reduce((a,b)=>a+b,0)/trialTimes.length;
       const lapses = trialTimes.filter(t=>t>500).length;
-      // 最終フィードバック
       let finalMsg = `平均: ${avg.toFixed(1)}ms, ラプス: ${lapses}回 → `;
-      if(avg>500) finalMsg+="注意力低下⚠️"; else finalMsg+="良好👌";
+      finalMsg += avg>500 ? "注意力低下⚠️" : "良好👌";
       feedback.textContent = finalMsg;
-      const today = new Date().toLocaleDateString();
+      const today = getDateString(new Date());
       pvtHistory.push({date:today, avg, lapses, reactions:trialTimes});
       localStorage.setItem("pvtHistory",JSON.stringify(pvtHistory));
       area.textContent="完了";
       updateChart();
+      showDailyPVTReminder();
       return;
     }
-
     area.textContent="準備中...";
     setTimeout(()=>{
       area.textContent="クリック！";
@@ -138,34 +160,35 @@ function startPVT(){
         const rt = performance.now()-start;
         trialTimes.push(rt);
         trialDone++;
-        // 個別フィードバック
-        let msg = `試行${trialDone}: ${rt.toFixed(0)}ms → `;
-        if(rt>500) msg+="注意力低下⚠️"; else msg+="良好👌";
-        feedback.textContent = msg;
+        feedback.textContent = `試行${trialDone}: ${rt.toFixed(0)}ms → ${rt>500?"注意力低下⚠️":"良好👌"}`;
         area.removeEventListener("click", clickHandler);
         runTrial();
       };
       area.addEventListener("click", clickHandler);
     }, Math.random()*3000+2000);
   }
-
   runTrial();
 }
 
-// カレンダー折りたたみ
-function toggleCalendar(){
-  const cal = document.getElementById("calendar");
-  if(cal.style.display==="none"){ cal.style.display="table"; renderCalendar(); }
-  else cal.style.display="none";
+// PVTリマインド
+function showDailyPVTReminder(){
+  const now = new Date();
+  const hour = now.getHours();
+  if(hour >= 12){ // 12時以降
+    const today = getDateString(now);
+    const done = pvtHistory.some(r=>r.date===today);
+    if(!done){
+      const banner = document.getElementById("today-pvt-reminder");
+      banner.style.display="flex"; // バナー表示
+    }
+  }
 }
 
-// カレンダー描画
+// カレンダー
+function toggleCalendar(){ const cal = document.getElementById("calendar"); if(cal.style.display==="none"){ cal.style.display="table"; renderCalendar(); } else cal.style.display="none"; }
 function renderCalendar(){
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  const firstDay = new Date(year,month,1).getDay();
-  const lastDate = new Date(year,month+1,0).getDate();
+  const today = new Date(), year=today.getFullYear(), month=today.getMonth();
+  const firstDay=new Date(year,month,1).getDay(), lastDate=new Date(year,month+1,0).getDate();
   let html="<tr><th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr><tr>";
   for(let i=0;i<firstDay;i++) html+="<td></td>";
   for(let d=1;d<=lastDate;d++){
@@ -175,9 +198,7 @@ function renderCalendar(){
     html+=`<td data-date="${dateStr}"><strong>${d}</strong><br>${sleepRec}h<br>${pvtRec}ms</td>`;
     if((d+firstDay)%7===0) html+="</tr><tr>";
   }
-  html+="</tr>";
-  document.getElementById("calendar").innerHTML=html;
-
+  html+="</tr>"; document.getElementById("calendar").innerHTML=html;
   document.querySelectorAll("#calendar td[data-date]").forEach(td=>{
     td.onclick=()=>{
       selectedDate = td.dataset.date;
@@ -189,27 +210,44 @@ function renderCalendar(){
 }
 
 // モーダル操作
+document.getElementById("delete-entry").onclick=()=>{
+  if(selectedDate && confirm(`${selectedDate} のデータを削除しますか？`)){
+    sleepHistory = sleepHistory.filter(r=>r.date!==selectedDate);
+    pvtHistory = pvtHistory.filter(r=>r.date!==selectedDate);
+    localStorage.setItem("sleepHistory",JSON.stringify(sleepHistory));
+    localStorage.setItem("pvtHistory",JSON.stringify(pvtHistory));
+    updateChart(); renderCalendar(); document.getElementById("edit-modal").style.display="none";
+    showDailyPVTReminder();
+  }
+};
 document.getElementById("save-edit").onclick=()=>{
   if(selectedDate){
     const sleepVal=parseFloat(document.getElementById("edit-bed").value);
     const pvtVal=parseInt(document.getElementById("edit-pvt").value);
     let sIndex = sleepHistory.findIndex(r=>r.date===selectedDate);
-    if(sIndex>=0) sleepHistory[sIndex].hours=sleepVal;
-    else sleepHistory.push({date:selectedDate,hours:sleepVal});
+    if(sIndex>=0) sleepHistory[sIndex].hours=sleepVal; else sleepHistory.push({date:selectedDate,hours:sleepVal});
     let pIndex = pvtHistory.findIndex(r=>r.date===selectedDate);
-    if(pIndex>=0) pvtHistory[pIndex].avg=pvtVal;
-    else pvtHistory.push({date:selectedDate,avg:pvtVal,lapses:0,reactions:[]});
+    if(pIndex>=0) pvtHistory[pIndex].avg=pvtVal; else pvtHistory.push({date:selectedDate,avg:pvtVal,lapses:0,reactions:[]});
     localStorage.setItem("sleepHistory",JSON.stringify(sleepHistory));
     localStorage.setItem("pvtHistory",JSON.stringify(pvtHistory));
-    updateChart();
-    renderCalendar();
-    document.getElementById("edit-modal").style.display="none";
+    updateChart(); renderCalendar(); document.getElementById("edit-modal").style.display="none";
+    showDailyPVTReminder();
   }
 };
-document.getElementById("close-modal").onclick=()=>{document.getElementById("edit-modal").style.display="none";};
+document.getElementById("close-modal").onclick=()=>{ document.getElementById("edit-modal").style.display="none"; };
+
+// 全データ削除
+document.getElementById("clear-data").onclick = () => {
+  if(confirm("カレンダーから修正できない場合に使用してください。本当に全データを削除しますか？")){
+    localStorage.clear(); sleepHistory=[]; pvtHistory=[];
+    updateChart(); renderCalendar(); alert("すべてのデータを削除しました。");
+    showDailyPVTReminder();
+  }
+};
 
 // 初期描画
 updateChart();
+showDailyPVTReminder();
 </script>
 </body>
 </html>
