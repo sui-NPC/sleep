@@ -59,14 +59,15 @@ button:hover { background: #357ab8; }
 <!-- 睡眠記録 -->
 <section class="card">
 <h2>睡眠記録</h2>
-<button onclick="recordSleep()">就寝記録</button>
-<button onclick="recordWake()">起床記録</button>
+<button onclick="recordSleep()">おやすみ</button>
+<button onclick="recordWake()">おはよう</button>
 <p id="sleep-feedback" class="feedback"></p>
 </section>
 
 <!-- PVTテスト -->
 <section class="card" id="pvt-section">
 <h2>反応速度テスト</h2>
+<p>クリックが表示されたら枠の中をタップしてね！</p>
 <button onclick="startPVT()">テスト開始</button>
 <div id="pvt-area">準備中...</div>
 <p id="pvt-feedback" class="feedback"></p>
@@ -289,3 +290,4 @@ showDailyPVTReminder();
 </script>
 </body>
 </html>
+
