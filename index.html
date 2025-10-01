@@ -21,7 +21,6 @@
   table#calendar{width:100%;border-collapse:collapse;margin-top:.6rem}
   table#calendar th, table#calendar td{border:1px solid #ddd;padding:.4rem;text-align:center;height:80px;vertical-align:top}
   .small{font-size:.9rem;color:#555}
-  #notification-perm{margin-left:.5rem}
   .flex{display:flex;gap:.6rem;flex-wrap:wrap}
   input[type="time"], input[type="date"], input[type="number"]{padding:.4rem;border-radius:6px;border:1px solid #ccc}
   .muted{color:#666;font-size:.9rem}
@@ -44,7 +43,6 @@
       <button id="btn-sleep">おやすみ（現在時刻）</button>
       <button id="btn-wake">おはよう（現在時刻）</button>
       <button id="btn-manual">時刻を指定して記録</button>
-      <button id="btn-request-notif">通知許可</button>
       <button id="btn-export" style="background:#1abc9c">エクスポート</button>
       <button id="btn-import" style="background:#f39c12">インポート</button>
       <button id="btn-clear" class="warn">全データ削除</button>
@@ -100,6 +98,9 @@
 </div>
 
 <script>
+// =========================
+// データ構造とロード
+// =========================
 const SKEY = "sleepHistory_v2";
 const PKEY = "pvtHistory_v2";
 const S_BACK = "sleepHistory_backup_v2";
@@ -107,15 +108,23 @@ const P_BACK = "pvtHistory_backup_v2";
 
 let sleepHistory = [];
 let pvtHistory = [];
+let tempSleepTime = null;
 
 function getDateString(d) { return d.toISOString().split('T')[0]; }
 function timeToHM(d){ return d.toTimeString().split(' ')[0].slice(0,5); }
+
+// ページ読み込み時にlocalStorageから復元
+try {
+  const tmp = localStorage.getItem('tempSleepTime');
+  if (tmp) tempSleepTime = new Date(tmp);
+} catch(e) { tempSleepTime = null; }
 
 function safeLoad() {
   try {
     sleepHistory = JSON.parse(localStorage.getItem(SKEY) || "[]");
     pvtHistory = JSON.parse(localStorage.getItem(PKEY) || "[]");
   } catch (e) {
+    console.warn("localStorage 読み込みエラー。バックアップを試みます。", e);
     const sb = localStorage.getItem(S_BACK);
     const pb = localStorage.getItem(P_BACK);
     if (sb || pb) {
@@ -124,6 +133,7 @@ function safeLoad() {
         if (pb) pvtHistory = JSON.parse(pb);
         alert("破損データをバックアップから復元しました。");
       } catch (ee) {
+        console.error("バックアップも破損しています：", ee);
         sleepHistory = []; pvtHistory = [];
       }
     } else {
@@ -134,6 +144,7 @@ function safeLoad() {
 }
 
 function validateAndCleanData(){
+  // sleepHistory: date present, hours number (0-24) or null, keep latest if duplicate date
   const sleepMap = {};
   for (let r of sleepHistory){
     if (!r || !r.date) continue;
@@ -143,6 +154,7 @@ function validateAndCleanData(){
   }
   sleepHistory = Object.keys(sleepMap).sort().map(d => sleepMap[d]);
 
+  // pvtHistory: date present, avg number sane (0-10000)
   const pvtMap = {};
   for (let r of pvtHistory){
     if (!r || !r.date) continue;
@@ -162,13 +174,18 @@ function saveWithBackup(){
     localStorage.setItem(P_BACK, localStorage.getItem(PKEY) || "[]");
     localStorage.setItem(SKEY, JSON.stringify(sleepHistory));
     localStorage.setItem(PKEY, JSON.stringify(pvtHistory));
+    console.log("saved (and backed up).");
   } catch (e) {
+    console.error("保存エラー:", e);
     alert("保存に失敗しました。ブラウザのストレージ容量や権限を確認してください。");
   }
 }
 
 safeLoad();
 
+// =========================
+// Chart: 線グラフ（睡眠時間／PVT）と散布図（相関）
+// =========================
 const timeCtx = document.getElementById('timeChart').getContext('2d');
 let timeChart;
 
@@ -217,13 +234,11 @@ function buildTimeChart(){
           xSleep: { display: false, type: 'linear', position: 'bottom' },
           yPvt: { display: false, type: 'linear', position: 'right' }
         },
-        plugins: {
-          legend: { display: true }
-        }
+        plugins: { legend: { display: true } }
       },
       plugins: [{
         id: 'regressionLine',
-        afterDatasetsDraw(chart, args, options){
+        afterDatasetsDraw(chart){
           const scatterDs = chart.data.datasets.find(ds => ds.type === 'scatter');
           if (!scatterDs || scatterDs.data.length < 2) return;
           const xs = scatterDs.data.map(p => p.x);
@@ -268,14 +283,9 @@ function buildTimeChart(){
   }
 }
 
-// --- 睡眠記録（おやすみ/おはよう） ---
-let tempSleepTime = null;
-// ページ読み込み時にlocalStorageから復元
-try {
-  const tmp = localStorage.getItem('tempSleepTime');
-  if (tmp) tempSleepTime = new Date(tmp);
-} catch(e) { tempSleepTime = null; }
-
+// =========================
+// 記録処理
+// =========================
 document.getElementById('btn-sleep').addEventListener('click', ()=>{
   tempSleepTime = new Date();
   localStorage.setItem('tempSleepTime', tempSleepTime.toISOString());
@@ -283,7 +293,6 @@ document.getElementById('btn-sleep').addEventListener('click', ()=>{
 });
 
 document.getElementById('btn-wake').addEventListener('click', ()=>{
-  // localStorageから復元
   if (!tempSleepTime){
     try {
       const tmp = localStorage.getItem('tempSleepTime');
@@ -341,12 +350,243 @@ document.getElementById('btn-wake').addEventListener('click', ()=>{
   }
 });
 
-// ...既存の手動入力・PVT・カレンダー・編集・エクスポート/インポート・バックアップ・通知・リマインダー処理...
-// （前回のコードと同じです。必要に応じて再送します）
+function showManualArea(){
+  document.getElementById('manual-area').style.display = 'block';
+  const today = new Date();
+  document.getElementById('manual-date').value = getDateString(today);
+}
+document.getElementById('btn-manual').addEventListener('click', showManualArea);
+document.getElementById('btn-manual-cancel').addEventListener('click', ()=> document.getElementById('manual-area').style.display='none');
 
+document.getElementById('btn-manual-save').addEventListener('click', ()=>{
+  const date = document.getElementById('manual-date').value;
+  const st = document.getElementById('manual-sleep-time').value;
+  const wt = document.getElementById('manual-wake-time').value;
+  if (!date) { alert('日付を指定してください'); return; }
+  let hours = null;
+  if (st && wt){
+    const sd = new Date(date + 'T' + st);
+    let wd = new Date(date + 'T' + wt);
+    if (wd <= sd) wd.setDate(wd.getDate()+1);
+    hours = (wd - sd)/1000/3600;
+    hours = parseFloat(hours.toFixed(1));
+  } else if (st || wt){
+    hours = null;
+  } else {
+    alert('就寝または起床時刻のいずれかを入力してください。');
+    return;
+  }
+  const idx = sleepHistory.findIndex(r=>r.date===date);
+  if (idx>=0){
+    if (!confirm('その日の睡眠記録は既にあります。上書きしますか？')) return;
+    sleepHistory[idx] = {date, hours, bedtime: st||null, waketime: wt||null, createdAt: new Date().toISOString()};
+  } else {
+    sleepHistory.push({date, hours, bedtime: st||null, waketime: wt||null, createdAt: new Date().toISOString()});
+  }
+  saveWithBackup(); buildTimeChart(); document.getElementById('manual-area').style.display='none';
+  document.getElementById('sleep-feedback').textContent = '手動入力を保存しました';
+});
+
+// =========================
+// PVT 実装
+// =========================
+const pvtArea = document.getElementById('pvt-area');
+const pvtFeedback = document.getElementById('pvt-feedback');
+
+document.getElementById('btn-start-pvt').addEventListener('click', ()=> startPVT(15));
+
+function startPVT(totalTrials=15){
+  pvtFeedback.textContent='';
+  let trial = 0;
+  let times = [];
+  pvtArea.textContent = '準備中... クリックで中止';
+  let running = true;
+  pvtArea.onclick = ()=> { running=false; pvtArea.textContent='中止'; pvtFeedback.textContent='テストが中止されました'; };
+
+  function runTrial(){
+    if (!running) return;
+    if (trial >= totalTrials){
+      const avg = times.reduce((a,b)=>a+b,0)/times.length;
+      const lapses = times.filter(t=>t>500).length;
+      const today = getDateString(new Date());
+      const idx = pvtHistory.findIndex(r=>r.date===today);
+      if (idx>=0){
+        if (!confirm('本日すでに PVT 記録があります。上書きしますか？')) {
+          pvtFeedback.textContent = '保存をキャンセルしました';
+          return;
+        }
+        pvtHistory[idx] = {date: today, avg: parseFloat(avg.toFixed(1)), lapses, reactions: times, createdAt: new Date().toISOString()};
+      } else {
+        pvtHistory.push({date: today, avg: parseFloat(avg.toFixed(1)), lapses, reactions: times, createdAt: new Date().toISOString()});
+      }
+      saveWithBackup(); buildTimeChart();
+      pvtArea.textContent = '完了';
+      pvtFeedback.textContent = `平均: ${avg.toFixed(1)}ms, ラプス: ${lapses}回`;
+      return;
+    }
+    pvtArea.textContent = '待機中...';
+    const delay = Math.random()*3000 + 1500;
+    setTimeout(()=>{
+      if (!running) return;
+      pvtArea.textContent = 'クリック！';
+      const start = performance.now();
+      const handler = ()=>{
+        const rt = performance.now() - start;
+        times.push(rt);
+        trial++;
+        pvtFeedback.textContent = `試行 ${trial} = ${rt.toFixed(0)} ms`;
+        pvtArea.removeEventListener('click', handler);
+        runTrial();
+      };
+      pvtArea.addEventListener('click', handler);
+    }, delay);
+  }
+  runTrial();
+}
+
+// =========================
+// カレンダー描画＋編集
+// =========================
+function toggleCalendar(){
+  const cal = document.getElementById('calendar');
+  cal.style.display = cal.style.display === 'table' ? 'none' : 'table';
+  if (cal.style.display === 'table') renderCalendar();
+}
+document.getElementById('toggle-calendar').addEventListener('click', toggleCalendar);
+
+function renderCalendar(){
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const lastDate = new Date(year, month+1, 0).getDate();
+  let html = '<tr><th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr><tr>';
+  for (let i=0;i<firstDay;i++) html += '<td></td>';
+  for (let d=1; d<=lastDate; d++){
+    const mm = String(month+1).padStart(2,'0');
+    const dd = String(d).padStart(2,'0');
+    const dateStr = `${year}-${mm}-${dd}`;
+    const s = sleepHistory.find(r=>r.date===dateStr);
+    const p = pvtHistory.find(r=>r.date===dateStr);
+    html += `<td data-date="${dateStr}"><strong>${d}</strong><div class="small">${s ? s.hours + 'h' : ''}</div><div class="small">${p ? p.avg + 'ms' : ''}</div></td>`;
+    if ((d+firstDay)%7===0) html += '</tr><tr>';
+  }
+  html += '</tr>';
+  document.getElementById('calendar').innerHTML = html;
+  document.querySelectorAll('#calendar td[data-date]').forEach(td=>{
+    td.onclick = ()=> {
+      const date = td.dataset.date;
+      openEditModal(date);
+    };
+  });
+}
+
+let editDate = null;
+function openEditModal(date){
+  editDate = date;
+  document.getElementById('edit-date').textContent = date;
+  const s = sleepHistory.find(r=>r.date===date);
+  const p = pvtHistory.find(r=>r.date===date);
+  document.getElementById('edit-hours').value = s ? (s.hours != null ? s.hours : '') : '';
+  document.getElementById('edit-pvt-avg').value = p ? (p.avg != null ? p.avg : '') : '';
+  document.getElementById('edit-modal').style.display = 'flex';
+}
+document.getElementById('close-edit').addEventListener('click', ()=> document.getElementById('edit-modal').style.display='none');
+
+document.getElementById('save-edit').addEventListener('click', ()=>{
+  if (!editDate) return;
+  const h = parseFloat(document.getElementById('edit-hours').value);
+  const a = parseFloat(document.getElementById('edit-pvt-avg').value);
+  const sIdx = sleepHistory.findIndex(r=>r.date===editDate);
+  if (!isNaN(h)){
+    if (sIdx>=0) sleepHistory[sIdx].hours = h;
+    else sleepHistory.push({date: editDate, hours: h, createdAt: new Date().toISOString()});
+  }
+  const pIdx = pvtHistory.findIndex(r=>r.date===editDate);
+  if (!isNaN(a)){
+    if (pIdx>=0) pvtHistory[pIdx].avg = a;
+    else pvtHistory.push({date: editDate, avg: a, lapses: 0, reactions: [], createdAt: new Date().toISOString()});
+  }
+  saveWithBackup(); validateAndCleanData(); buildTimeChart(); renderCalendar();
+  document.getElementById('edit-modal').style.display = 'none';
+});
+document.getElementById('delete-edit').addEventListener('click', ()=>{
+  if (!editDate) return;
+  if (!confirm(editDate + ' のデータを削除しますか？')) return;
+  sleepHistory = sleepHistory.filter(r=>r.date!==editDate);
+  pvtHistory = pvtHistory.filter(r=>r.date!==editDate);
+  saveWithBackup(); buildTimeChart(); renderCalendar();
+  document.getElementById('edit-modal').style.display = 'none';
+});
+
+// =========================
+// エクスポート / インポート
+// =========================
+document.getElementById('btn-export').addEventListener('click', ()=>{
+  const data = {sleepHistory, pvtHistory, exportedAt: new Date().toISOString()};
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'sleep_pvt_data.json'; a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('btn-import').addEventListener('click', ()=>{
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json,application/json';
+  input.onchange = (e)=>{
+    const f = e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = (ev)=>{
+      try {
+        const obj = JSON.parse(ev.target.result);
+        if (confirm('インポートしたデータで上書きしますか？（キャンセルでマージ）')){
+          sleepHistory = obj.sleepHistory || [];
+          pvtHistory = obj.pvtHistory || [];
+        } else {
+          const mapS = {};
+          sleepHistory.forEach(r=> mapS[r.date]=r);
+          (obj.sleepHistory||[]).forEach(r=> mapS[r.date]=r);
+          sleepHistory = Object.keys(mapS).map(d=>mapS[d]);
+          const mapP = {};
+          pvtHistory.forEach(r=> mapP[r.date]=r);
+          (obj.pvtHistory||[]).forEach(r=> mapP[r.date]=r);
+          pvtHistory = Object.keys(mapP).map(d=>mapP[d]);
+        }
+        saveWithBackup(); validateAndCleanData(); buildTimeChart(); renderCalendar();
+        alert('インポート完了');
+      } catch (err) {
+        alert('ファイルの読み込みに失敗しました:' + err);
+      }
+    };
+    reader.readAsText(f);
+  };
+  input.click();
+});
+
+document.getElementById('btn-clear').addEventListener('click', ()=>{
+  if (!confirm('本当に全データを削除しますか？')) return;
+  sleepHistory = []; pvtHistory = [];
+  saveWithBackup(); buildTimeChart(); renderCalendar();
+  alert('すべてのデータを削除しました');
+});
+document.getElementById('btn-restore-backup').addEventListener('click', ()=>{
+  if (!confirm('最後のバックアップから復元しますか？現在のデータは上書きされます。')) return;
+  try {
+    const sb = JSON.parse(localStorage.getItem(S_BACK) || "[]");
+    const pb = JSON.parse(localStorage.getItem(P_BACK) || "[]");
+    sleepHistory = sb; pvtHistory = pb;
+    saveWithBackup(); validateAndCleanData(); buildTimeChart(); renderCalendar();
+    alert('バックアップから復元しました');
+  } catch (e) { alert('復元に失敗しました: ' + e); }
+});
+
+// =========================
+// 起動時処理
+// =========================
 buildTimeChart();
 renderCalendar();
-showDailyPVTReminder();
 
 console.log("注意: localStorage は XSS による盗難のリスクがあるため、機密情報は保存しないでください。大規模データや同期が必要なら IndexedDB / サーバー同期を検討してください。");
 </script>
