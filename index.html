@@ -49,7 +49,6 @@
       <button id="btn-sleep">おやすみ（現在時刻）</button>
       <button id="btn-wake">おはよう（現在時刻）</button>
       <button id="btn-manual">時刻を指定して記録</button>
-      <button id="btn-request-notif">通知許可</button>
       <button id="btn-export" style="background:#1abc9c">エクスポート</button>
       <button id="btn-import" style="background:#f39c12">インポート</button>
       <button id="btn-clear" class="warn">全データ削除</button>
@@ -70,7 +69,10 @@
   <div class="card">
     <h2>PVT（反応速度）</h2>
     <p class="small muted">1 日 1 回のテスト推奨 — 既定は 15 試行</p>
-    <button id="btn-start-pvt">テスト開始</button>
+    <div class="flex">
+      <button id="btn-start-pvt">テスト開始</button>
+      <button id="btn-cancel-pvt" class="warn" disabled>中止</button>
+    </div>
     <div id="pvt-area">準備中...</div>
     <p id="pvt-feedback" class="feedback"></p>
   </div>
@@ -429,19 +431,38 @@ document.getElementById('btn-manual-save').addEventListener('click', ()=>{
    ========================= */
 const pvtArea = document.getElementById('pvt-area');
 const pvtFeedback = document.getElementById('pvt-feedback');
+const btnStartPvt = document.getElementById('btn-start-pvt');
+const btnCancelPvt = document.getElementById('btn-cancel-pvt');
 
-document.getElementById('btn-start-pvt').addEventListener('click', ()=> startPVT(15));
+let pvtRunning = false;
+let pvtCancelHandler = null;
+
+btnStartPvt.addEventListener('click', ()=> startPVT(15));
+btnCancelPvt.addEventListener('click', ()=> {
+  if (pvtRunning) {
+    pvtRunning = false;
+    pvtArea.textContent = '中止';
+    pvtFeedback.textContent = 'テストが中止されました';
+    btnCancelPvt.disabled = true;
+    // クリックイベント解除
+    pvtArea.onclick = null;
+    if (pvtCancelHandler) {
+      pvtArea.removeEventListener('click', pvtCancelHandler);
+      pvtCancelHandler = null;
+    }
+  }
+});
 
 function startPVT(totalTrials=15){
   pvtFeedback.textContent='';
   let trial = 0;
   let times = [];
-  pvtArea.textContent = '準備中... クリックで中止';
-  let running = true;
-  pvtArea.onclick = ()=> { running=false; pvtArea.textContent='中止'; pvtFeedback.textContent='テストが中止されました'; };
+  pvtArea.textContent = '準備中...';
+  pvtRunning = true;
+  btnCancelPvt.disabled = false;
 
   function runTrial(){
-    if (!running) return;
+    if (!pvtRunning) return;
     if (trial >= totalTrials){
       const avg = times.reduce((a,b)=>a+b,0)/times.length;
       const lapses = times.filter(t=>t>500).length;
@@ -451,23 +472,27 @@ function startPVT(totalTrials=15){
       saveWithBackup(); validateAndCleanData(); buildTimeChart();
       pvtArea.textContent = '完了';
       pvtFeedback.textContent = `平均: ${avg.toFixed(1)}ms, ラプス: ${lapses}回`;
+      btnCancelPvt.disabled = true;
+      pvtArea.onclick = null;
       return;
     }
     pvtArea.textContent = '待機中...';
+    pvtArea.onclick = null;
     const delay = Math.random()*3000 + 1500;
     setTimeout(()=>{
-      if (!running) return;
+      if (!pvtRunning) return;
       pvtArea.textContent = 'クリック！';
-      const start = performance.now();
-      const handler = ()=>{
+      pvtCancelHandler = function handler(){
         const rt = performance.now() - start;
         times.push(rt);
         trial++;
         pvtFeedback.textContent = `試行 ${trial} = ${rt.toFixed(0)} ms`;
         pvtArea.removeEventListener('click', handler);
+        pvtArea.onclick = null;
         runTrial();
       };
-      pvtArea.addEventListener('click', handler);
+      const start = performance.now();
+      pvtArea.addEventListener('click', pvtCancelHandler);
     }, delay);
   }
   runTrial();
@@ -629,18 +654,7 @@ document.getElementById('btn-restore-backup').addEventListener('click', ()=>{
   } catch (e) { alert('復元に失敗しました: ' + e); }
 });
 
-/* =========================
-   通知（Notification API）: 許可要求と簡易リマインダー
-   ========================= */
-document.getElementById('btn-request-notif').addEventListener('click', async ()=>{
-  if (!('Notification' in window)) { alert('このブラウザは通知をサポートしていません'); return; }
-  try {
-    const p = await Notification.requestPermission();
-    alert('通知許可: ' + p);
-  } catch (e) {
-    console.warn('Notification.requestPermission error', e);
-  }
-});
+// ...existing code...
 
 /* =========================
    カレンダー詳細モーダル（クリックで全データ一覧を表示）
@@ -708,22 +722,7 @@ window.addEventListener('click', (e)=> { if (e.target.id === 'detail-modal') doc
    ========================= */
 buildTimeChart();
 renderCalendar();
-/* PVT リマインダー（ページ読み込み時） */
-(function showDailyPVTReminder(){
-  const now = new Date();
-  const hour = now.getHours();
-  if (hour < 12 || hour > 23) return;
-  const today = getDateString(now);
-  if (!pvtHistory.some(r=>r.date === today)){
-    if (confirm('今日の PVT をまだ実施していません。今すぐ実施しますか？')) {
-      document.getElementById('btn-start-pvt').click();
-    } else {
-      if (Notification.permission === 'granted'){
-        new Notification('PVTのリマインド', { body: '今日の反応速度テストを実施してください（アプリ）' });
-      }
-    }
-  }
-})();
+// ...existing code...
 
 /* =========================
    初回アドバイス
@@ -733,3 +732,5 @@ console.log("注意: localStorage は XSS による盗難のリスクがある�
 </script>
 </body>
 </html>
+
+このコードをユーザーに使用してもらい、目的に沿って目的に達成しているかどうかの評価をします。ｔ検定に使えそうなアンケート項目はありますか？
