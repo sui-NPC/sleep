@@ -21,10 +21,16 @@
   table#calendar{width:100%;border-collapse:collapse;margin-top:.6rem}
   table#calendar th, table#calendar td{border:1px solid #ddd;padding:.4rem;text-align:center;height:80px;vertical-align:top}
   .small{font-size:.9rem;color:#555}
+  #notification-perm{margin-left:.5rem}
   .flex{display:flex;gap:.6rem;flex-wrap:wrap}
   input[type="time"], input[type="date"], input[type="number"]{padding:.4rem;border-radius:6px;border:1px solid #ccc}
   .muted{color:#666;font-size:.9rem}
   canvas{max-width:100%}
+  /* detail modal */
+  #detail-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center}
+  #detail-modal .dialog{background:#fff;padding:1rem;border-radius:10px;max-width:520px;width:92%;max-height:80vh;overflow:auto}
+  #detail-modal h3{margin-top:0}
+  .note-star{color:#e67e22;font-weight:700;margin-left:6px}
 </style>
 </head>
 <body>
@@ -43,6 +49,7 @@
       <button id="btn-sleep">おやすみ（現在時刻）</button>
       <button id="btn-wake">おはよう（現在時刻）</button>
       <button id="btn-manual">時刻を指定して記録</button>
+      <button id="btn-request-notif">通知許可</button>
       <button id="btn-export" style="background:#1abc9c">エクスポート</button>
       <button id="btn-import" style="background:#f39c12">インポート</button>
       <button id="btn-clear" class="warn">全データ削除</button>
@@ -72,16 +79,16 @@
     <h2>カレンダー編集</h2>
     <button id="toggle-calendar">カレンダーを表示/非表示</button>
     <table id="calendar" style="display:none;"></table>
-    <p class="small muted">セルをクリックで編集モーダルを開きます。</p>
+    <p class="small muted">セルをクリックで詳細モーダルを表示します（平均値表示・複数件は (*)）。</p>
   </div>
 
   <div class="card">
     <h2>データ整合性 & バックアップ</h2>
-    <p class="small muted">データは localStorage に保存されます。保存時にバックアップキー（<code>sleepHistory_backup</code> / <code>pvtHistory_backup</code>）を作成します。</p>
+    <p class="small muted">データは localStorage に保存されます。保存時にバックアップキー（<code>sleepHistory_backup_v2</code> / <code>pvtHistory_backup_v2</code>）を作成します。</p>
     <button id="btn-restore-backup">最後のバックアップから復元</button>
   </div>
 
-  <!-- 編集モーダル（簡易） -->
+  <!-- 編集モーダル（既存の編集用） -->
   <div id="edit-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center;">
     <div style="background:#fff;padding:1rem;border-radius:10px;max-width:360px;margin:auto">
       <h3>データ編集 <span id="edit-date" class="small muted"></span></h3>
@@ -95,30 +102,37 @@
     </div>
   </div>
 
+  <!-- 詳細モーダル（カレンダーから開く） -->
+  <div id="detail-modal">
+    <div class="dialog">
+      <button id="close-detail" style="float:right">閉じる</button>
+      <h3 id="detail-date">—</h3>
+      <div id="detail-body"></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
-// =========================
-// データ構造とロード
-// =========================
+/* =========================
+   データ構造とロード
+   ========================= */
 const SKEY = "sleepHistory_v2";
 const PKEY = "pvtHistory_v2";
 const S_BACK = "sleepHistory_backup_v2";
 const P_BACK = "pvtHistory_backup_v2";
 
-let sleepHistory = [];
-let pvtHistory = [];
-let tempSleepTime = null;
+let sleepHistory = []; // raw entries: {date: 'YYYY-MM-DD', hours: number, bedtime?: 'HH:MM', waketime?: 'HH:MM', createdAt: iso }
+let pvtHistory = [];   // raw entries: {date: 'YYYY-MM-DD', avg: number, lapses: number, reactions: [...], createdAt: iso }
+
+// Aggregated views (derived)
+let aggSleepMap = {}; // date -> { avgHours, count, details: [hours,...] }
+let aggPvtMap = {};   // date -> { avgAvg, count, details: [{avg,lapses,reactions,createdAt}, ...] }
 
 function getDateString(d) { return d.toISOString().split('T')[0]; }
 function timeToHM(d){ return d.toTimeString().split(' ')[0].slice(0,5); }
 
-// ページ読み込み時にlocalStorageから復元
-try {
-  const tmp = localStorage.getItem('tempSleepTime');
-  if (tmp) tempSleepTime = new Date(tmp);
-} catch(e) { tempSleepTime = null; }
-
+/* safeLoad: load raw arrays, sanitize entries, then build aggregates */
 function safeLoad() {
   try {
     sleepHistory = JSON.parse(localStorage.getItem(SKEY) || "[]");
@@ -143,35 +157,82 @@ function safeLoad() {
   validateAndCleanData();
 }
 
+/* validateAndCleanData:
+   - sanitize raw arrays (filter out invalid entries)
+   - keep duplicates in raw arrays (we DO NOT collapse raw entries)
+   - build aggregated maps used for charts/calendar (average + count + details)
+*/
 function validateAndCleanData(){
-  // sleepHistory: date present, hours number (0-24) or null, keep latest if duplicate date
-  const sleepMap = {};
-  for (let r of sleepHistory){
-    if (!r || !r.date) continue;
+  // sanitize sleepHistory: keep valid entries only
+  sleepHistory = (sleepHistory || []).filter(r => {
+    if (!r || !r.date) return false;
+    // normalize numeric field name differences: support 'hours' or 'hours' or 'sleepDuration'
+    if (r.hours == null && r.sleepDuration != null) r.hours = parseFloat(r.sleepDuration);
     if (typeof r.hours === 'string') r.hours = parseFloat(r.hours) || null;
-    if (r.hours != null && (r.hours < 0 || r.hours > 48)) continue;
-    sleepMap[r.date] = {...(sleepMap[r.date]||{}), ...r};
-  }
-  sleepHistory = Object.keys(sleepMap).sort().map(d => sleepMap[d]);
+    if (r.hours != null && (r.hours < 0 || r.hours > 48)) return false;
+    return true;
+  });
 
-  // pvtHistory: date present, avg number sane (0-10000)
-  const pvtMap = {};
-  for (let r of pvtHistory){
-    if (!r || !r.date) continue;
+  // sanitize pvtHistory
+  pvtHistory = (pvtHistory || []).filter(r => {
+    if (!r || !r.date) return false;
     if (typeof r.avg === 'string') r.avg = parseFloat(r.avg) || null;
-    if (r.avg != null && (r.avg < 0 || r.avg > 10000)) continue;
-    pvtMap[r.date] = {...(pvtMap[r.date]||{}), ...r};
-  }
-  pvtHistory = Object.keys(pvtMap).sort().map(d => pvtMap[d]);
+    if (r.avg != null && (r.avg < 0 || r.avg > 10000)) return false;
+    return true;
+  });
 
+  // rebuild aggregates
+  aggSleepMap = {};
+  for (let r of sleepHistory){
+    const d = r.date;
+    if (!aggSleepMap[d]) aggSleepMap[d] = { details: [], count:0, avgHours: null };
+    if (r.hours != null) {
+      aggSleepMap[d].details.push({ hours: r.hours, bedtime: r.bedtime||null, waketime: r.waketime||null, createdAt: r.createdAt||null });
+      aggSleepMap[d].count++;
+    } else {
+      // If hours null but times exist, we can't average hours; but keep entry with hours=null
+      aggSleepMap[d].details.push({ hours: null, bedtime: r.bedtime||null, waketime: r.waketime||null, createdAt: r.createdAt||null });
+      // keep count to indicate multiple entries
+      aggSleepMap[d].count++;
+    }
+  }
+  // compute avgHours where possible (exclude nulls)
+  Object.keys(aggSleepMap).forEach(d=>{
+    const vals = aggSleepMap[d].details.map(x=>x.hours).filter(v=>v!=null);
+    if (vals.length) {
+      aggSleepMap[d].avgHours = vals.reduce((a,b)=>a+b,0)/vals.length;
+    } else {
+      aggSleepMap[d].avgHours = null;
+    }
+  });
+
+  aggPvtMap = {};
+  for (let r of pvtHistory){
+    const d = r.date;
+    if (!aggPvtMap[d]) aggPvtMap[d] = { details: [], count:0, avgAvg: null };
+    aggPvtMap[d].details.push({ avg: r.avg!=null ? r.avg : null, lapses: r.lapses!=null ? r.lapses : null, reactions: r.reactions||[], createdAt: r.createdAt||null });
+    aggPvtMap[d].count++;
+  }
+  Object.keys(aggPvtMap).forEach(d=>{
+    const vals = aggPvtMap[d].details.map(x=>x.avg).filter(v=>v!=null);
+    if (vals.length) aggPvtMap[d].avgAvg = vals.reduce((a,b)=>a+b,0)/vals.length;
+    else aggPvtMap[d].avgAvg = null;
+  });
+
+  // persist sanitized raw arrays (keep raw duplicates)
   localStorage.setItem(SKEY, JSON.stringify(sleepHistory));
   localStorage.setItem(PKEY, JSON.stringify(pvtHistory));
 }
 
+/* =========================
+   保存ユーティリティ（バックアップ含む）
+   ========================= */
 function saveWithBackup(){
   try {
+    // バックアップ作成（overwrite）
     localStorage.setItem(S_BACK, localStorage.getItem(SKEY) || "[]");
     localStorage.setItem(P_BACK, localStorage.getItem(PKEY) || "[]");
+    // 現在のデータ保存 (raw arrays)
     localStorage.setItem(SKEY, JSON.stringify(sleepHistory));
     localStorage.setItem(PKEY, JSON.stringify(pvtHistory));
     console.log("saved (and backed up).");
@@ -181,36 +242,39 @@ function saveWithBackup(){
   }
 }
 
+/* =========================
+   初期ロード
+   ========================= */
 safeLoad();
 
-// =========================
-// Chart: 線グラフ（睡眠時間／PVT）と散布図（相関）
-// =========================
+/* =========================
+   Chart: 線グラフ（睡眠時間／PVT）と散布図（相関）
+   - uses aggregates (avg per date)
+   ========================= */
 const timeCtx = document.getElementById('timeChart').getContext('2d');
 let timeChart;
 
 function buildTimeChart(){
-  const dates = Array.from(new Set([
-    ...sleepHistory.map(r=>r.date),
-    ...pvtHistory.map(r=>r.date)
-  ])).sort((a,b) => new Date(a) - new Date(b));
+  // collect dates from aggregated maps
+  const datesSet = new Set([...Object.keys(aggSleepMap), ...Object.keys(aggPvtMap)]);
+  const dates = Array.from(datesSet).sort((a,b)=> new Date(a) - new Date(b));
 
   const sleepData = dates.map(d => {
-    const rec = sleepHistory.find(r=>r.date===d);
-    return rec ? rec.hours : null;
+    const rec = aggSleepMap[d];
+    return rec && rec.avgHours != null ? parseFloat(rec.avgHours.toFixed(1)) : null;
   });
 
   const pvtData = dates.map(d => {
-    const rec = pvtHistory.find(r=>r.date===d);
-    return rec ? rec.avg : null;
+    const rec = aggPvtMap[d];
+    return rec && rec.avgAvg != null ? parseFloat(rec.avgAvg.toFixed(1)) : null;
   });
 
+  // scatter pairs from dates where both exist and not null
   const pairs = [];
-  pvtHistory.forEach(ph => {
-    const srec = sleepHistory.find(s => s.date === ph.date);
-    if (srec && srec.hours != null && ph.avg != null) {
-      pairs.push({x: srec.hours, y: ph.avg});
-    }
+  dates.forEach(d=>{
+    const s = aggSleepMap[d] && aggSleepMap[d].avgHours != null ? aggSleepMap[d].avgHours : null;
+    const p = aggPvtMap[d] && aggPvtMap[d].avgAvg != null ? aggPvtMap[d].avgAvg : null;
+    if (s != null && p != null) pairs.push({x: s, y: p});
   });
 
   if (!timeChart){
@@ -283,38 +347,28 @@ function buildTimeChart(){
   }
 }
 
-// =========================
-// 記録処理
-// =========================
+/* =========================
+   記録処理（重複チェック、上書き確認、手動入力）
+   - raw arrays keep all entries; duplicates allowed
+   ========================= */
+let tempSleepTime = null;
+
 document.getElementById('btn-sleep').addEventListener('click', ()=>{
   tempSleepTime = new Date();
-  localStorage.setItem('tempSleepTime', tempSleepTime.toISOString());
   document.getElementById('sleep-feedback').textContent = '就寝記録しました（' + timeToHM(tempSleepTime) + '）';
 });
 
 document.getElementById('btn-wake').addEventListener('click', ()=>{
-  if (!tempSleepTime){
-    try {
-      const tmp = localStorage.getItem('tempSleepTime');
-      if (tmp) tempSleepTime = new Date(tmp);
-    } catch(e) { tempSleepTime = null; }
-  }
   if (!tempSleepTime){
     if (!confirm('直前に「おやすみ」が記録されていません。手動入力しますか？（OK=手動入力, キャンセル=現在時刻で記録）')) {
       const now = new Date();
       const today = getDateString(now);
       const assumedHours = 7.0;
       if (confirm(`就寝時刻がありません。\n現在時刻で起床を記録しますか？\n（就寝時刻が不明なため仮に ${assumedHours} 時間の睡眠として保存します。保存しますか？）`)){
-        const idx = sleepHistory.findIndex(r=>r.date===today);
-        if (idx>=0){
-          if (!confirm('今日の睡眠記録は既に存在します。上書きしますか？')) return;
-          sleepHistory[idx].hours = assumedHours;
-          sleepHistory[idx].createdAt = new Date().toISOString();
-        } else {
-          sleepHistory.push({date: today, hours: assumedHours, createdAt: new Date().toISOString()});
-        }
-        saveWithBackup(); buildTimeChart(); document.getElementById('sleep-feedback').textContent='仮の睡眠時間を保存しました';
-        localStorage.removeItem('tempSleepTime');
+        // add raw entry (allow duplicates)
+        sleepHistory.push({date: today, hours: assumedHours, createdAt: new Date().toISOString()});
+        saveWithBackup(); validateAndCleanData(); buildTimeChart();
+        document.getElementById('sleep-feedback').textContent='仮の睡眠時間を保存しました';
         return;
       } else {
         showManualArea();
@@ -327,29 +381,16 @@ document.getElementById('btn-wake').addEventListener('click', ()=>{
   } else {
     const wake = new Date();
     const diffH = (wake - tempSleepTime) / 1000 / 3600;
-    const recDate = getDateString(wake);
-    const idx = sleepHistory.findIndex(r=>r.date===recDate);
-    if (idx>=0){
-      if (!confirm(`${recDate} の睡眠記録は既に存在します。上書きしますか？`)) {
-        tempSleepTime = null;
-        localStorage.removeItem('tempSleepTime');
-        return;
-      }
-      sleepHistory[idx].hours = parseFloat(diffH.toFixed(1));
-      sleepHistory[idx].bedtime = timeToHM(tempSleepTime);
-      sleepHistory[idx].waketime = timeToHM(wake);
-      sleepHistory[idx].createdAt = new Date().toISOString();
-    } else {
-      sleepHistory.push({date: recDate, hours: parseFloat(diffH.toFixed(1)), bedtime: timeToHM(tempSleepTime), waketime: timeToHM(wake), createdAt: new Date().toISOString()});
-    }
+    const recDate = getDateString(wake); // record by wake date
+    // push raw entry (duplicates allowed)
+    sleepHistory.push({date: recDate, hours: parseFloat(diffH.toFixed(1)), bedtime: timeToHM(tempSleepTime), waketime: timeToHM(wake), createdAt: new Date().toISOString()});
     tempSleepTime = null;
-    localStorage.removeItem('tempSleepTime');
-    saveWithBackup();
-    buildTimeChart();
+    saveWithBackup(); validateAndCleanData(); buildTimeChart();
     document.getElementById('sleep-feedback').textContent = `睡眠時間 ${diffH.toFixed(1)} 時間として保存しました。`;
   }
 });
 
+// 手動入力エリア
 function showManualArea(){
   document.getElementById('manual-area').style.display = 'block';
   const today = new Date();
@@ -376,20 +417,16 @@ document.getElementById('btn-manual-save').addEventListener('click', ()=>{
     alert('就寝または起床時刻のいずれかを入力してください。');
     return;
   }
-  const idx = sleepHistory.findIndex(r=>r.date===date);
-  if (idx>=0){
-    if (!confirm('その日の睡眠記録は既にあります。上書きしますか？')) return;
-    sleepHistory[idx] = {date, hours, bedtime: st||null, waketime: wt||null, createdAt: new Date().toISOString()};
-  } else {
-    sleepHistory.push({date, hours, bedtime: st||null, waketime: wt||null, createdAt: new Date().toISOString()});
-  }
-  saveWithBackup(); buildTimeChart(); document.getElementById('manual-area').style.display='none';
+  // append as new raw entry (do not force overwrite)
+  sleepHistory.push({date, hours, bedtime: st||null, waketime: wt||null, createdAt: new Date().toISOString()});
+  saveWithBackup(); validateAndCleanData(); buildTimeChart(); document.getElementById('manual-area').style.display='none';
   document.getElementById('sleep-feedback').textContent = '手動入力を保存しました';
 });
 
-// =========================
-// PVT 実装
-// =========================
+/* =========================
+   PVT 実装（既存ロジックを改良）
+   - raw entries appended; duplicates allowed
+   ========================= */
 const pvtArea = document.getElementById('pvt-area');
 const pvtFeedback = document.getElementById('pvt-feedback');
 
@@ -409,17 +446,9 @@ function startPVT(totalTrials=15){
       const avg = times.reduce((a,b)=>a+b,0)/times.length;
       const lapses = times.filter(t=>t>500).length;
       const today = getDateString(new Date());
-      const idx = pvtHistory.findIndex(r=>r.date===today);
-      if (idx>=0){
-        if (!confirm('本日すでに PVT 記録があります。上書きしますか？')) {
-          pvtFeedback.textContent = '保存をキャンセルしました';
-          return;
-        }
-        pvtHistory[idx] = {date: today, avg: parseFloat(avg.toFixed(1)), lapses, reactions: times, createdAt: new Date().toISOString()};
-      } else {
-        pvtHistory.push({date: today, avg: parseFloat(avg.toFixed(1)), lapses, reactions: times, createdAt: new Date().toISOString()});
-      }
-      saveWithBackup(); buildTimeChart();
+      // append as new raw PVT entry (do not force overwrite)
+      pvtHistory.push({date: today, avg: parseFloat(avg.toFixed(1)), lapses, reactions: times, createdAt: new Date().toISOString()});
+      saveWithBackup(); validateAndCleanData(); buildTimeChart();
       pvtArea.textContent = '完了';
       pvtFeedback.textContent = `平均: ${avg.toFixed(1)}ms, ラプス: ${lapses}回`;
       return;
@@ -444,9 +473,10 @@ function startPVT(totalTrials=15){
   runTrial();
 }
 
-// =========================
-// カレンダー描画＋編集
-// =========================
+/* =========================
+   カレンダー描画＋編集（カレンダーは平均表示、(*) は複数件）
+   - クリックで「詳細モーダル」を開く（その日の全データ一覧）
+   ========================= */
 function toggleCalendar(){
   const cal = document.getElementById('calendar');
   cal.style.display = cal.style.display === 'table' ? 'none' : 'table';
@@ -466,9 +496,21 @@ function renderCalendar(){
     const mm = String(month+1).padStart(2,'0');
     const dd = String(d).padStart(2,'0');
     const dateStr = `${year}-${mm}-${dd}`;
-    const s = sleepHistory.find(r=>r.date===dateStr);
-    const p = pvtHistory.find(r=>r.date===dateStr);
-    html += `<td data-date="${dateStr}"><strong>${d}</strong><div class="small">${s ? s.hours + 'h' : ''}</div><div class="small">${p ? p.avg + 'ms' : ''}</div></td>`;
+    const sAgg = aggSleepMap[dateStr];
+    const pAgg = aggPvtMap[dateStr];
+    let sleepHtml = '';
+    let pvtHtml = '';
+    if (sAgg){
+      const avg = sAgg.avgHours != null ? sAgg.avgHours.toFixed(1) + 'h' : '';
+      const star = sAgg.count > 1 ? ' <span class="note-star">(*)</span>' : '';
+      sleepHtml = `<div class="small"> ${avg}${star}</div>`;
+    }
+    if (pAgg){
+      const avg = pAgg.avgAvg != null ? Math.round(pAgg.avgAvg) + 'ms' : '';
+      const star = pAgg.count > 1 ? ' <span class="note-star">(*)</span>' : '';
+      pvtHtml = `<div class="small"> ${avg}${star}</div>`;
+    }
+    html += `<td data-date="${dateStr}"><strong>${d}</strong>${sleepHtml}${pvtHtml}</td>`;
     if ((d+firstDay)%7===0) html += '</tr><tr>';
   }
   html += '</tr>';
@@ -476,15 +518,17 @@ function renderCalendar(){
   document.querySelectorAll('#calendar td[data-date]').forEach(td=>{
     td.onclick = ()=> {
       const date = td.dataset.date;
-      openEditModal(date);
+      openDetailModal(date); // open details modal (not edit)
     };
   });
 }
 
+/* 編集モーダル（既存） */
 let editDate = null;
 function openEditModal(date){
   editDate = date;
   document.getElementById('edit-date').textContent = date;
+  // For edit modal, we keep original behavior: show first matching record (if multiple exists)
   const s = sleepHistory.find(r=>r.date===date);
   const p = pvtHistory.find(r=>r.date===date);
   document.getElementById('edit-hours').value = s ? (s.hours != null ? s.hours : '') : '';
@@ -497,11 +541,13 @@ document.getElementById('save-edit').addEventListener('click', ()=>{
   if (!editDate) return;
   const h = parseFloat(document.getElementById('edit-hours').value);
   const a = parseFloat(document.getElementById('edit-pvt-avg').value);
+  // sleep: edit first matching raw entry for that date (preserves duplicate entries)
   const sIdx = sleepHistory.findIndex(r=>r.date===editDate);
   if (!isNaN(h)){
     if (sIdx>=0) sleepHistory[sIdx].hours = h;
     else sleepHistory.push({date: editDate, hours: h, createdAt: new Date().toISOString()});
   }
+  // pvt
   const pIdx = pvtHistory.findIndex(r=>r.date===editDate);
   if (!isNaN(a)){
     if (pIdx>=0) pvtHistory[pIdx].avg = a;
@@ -513,15 +559,17 @@ document.getElementById('save-edit').addEventListener('click', ()=>{
 document.getElementById('delete-edit').addEventListener('click', ()=>{
   if (!editDate) return;
   if (!confirm(editDate + ' のデータを削除しますか？')) return;
+  // delete ALL raw entries for that date to be safe (this matches former UX expectation)
   sleepHistory = sleepHistory.filter(r=>r.date!==editDate);
   pvtHistory = pvtHistory.filter(r=>r.date!==editDate);
-  saveWithBackup(); buildTimeChart(); renderCalendar();
+  saveWithBackup(); validateAndCleanData(); buildTimeChart(); renderCalendar();
   document.getElementById('edit-modal').style.display = 'none';
 });
 
-// =========================
-// エクスポート / インポート
-// =========================
+/* =========================
+   エクスポート / インポート
+   - インポート時: OK=上書き, Cancel=追加保存（重複を残す） を実現
+   ========================= */
 document.getElementById('btn-export').addEventListener('click', ()=>{
   const data = {sleepHistory, pvtHistory, exportedAt: new Date().toISOString()};
   const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
@@ -541,18 +589,14 @@ document.getElementById('btn-import').addEventListener('click', ()=>{
     reader.onload = (ev)=>{
       try {
         const obj = JSON.parse(ev.target.result);
-        if (confirm('インポートしたデータで上書きしますか？（キャンセルでマージ）')){
+        // confirm: 上書き? (OK=上書き, Cancel=追加保存)
+        if (confirm('インポートしたデータで上書きしますか？（キャンセルで追加保存／重複が残ります）')){
           sleepHistory = obj.sleepHistory || [];
           pvtHistory = obj.pvtHistory || [];
         } else {
-          const mapS = {};
-          sleepHistory.forEach(r=> mapS[r.date]=r);
-          (obj.sleepHistory||[]).forEach(r=> mapS[r.date]=r);
-          sleepHistory = Object.keys(mapS).map(d=>mapS[d]);
-          const mapP = {};
-          pvtHistory.forEach(r=> mapP[r.date]=r);
-          (obj.pvtHistory||[]).forEach(r=> mapP[r.date]=r);
-          pvtHistory = Object.keys(mapP).map(d=>mapP[d]);
+          // 追加（両方残す）
+          sleepHistory = (sleepHistory || []).concat(obj.sleepHistory || []);
+          pvtHistory = (pvtHistory || []).concat(obj.pvtHistory || []);
         }
         saveWithBackup(); validateAndCleanData(); buildTimeChart(); renderCalendar();
         alert('インポート完了');
@@ -565,10 +609,13 @@ document.getElementById('btn-import').addEventListener('click', ()=>{
   input.click();
 });
 
+/* =========================
+   全データ削除 / バックアップ復元
+   ========================= */
 document.getElementById('btn-clear').addEventListener('click', ()=>{
   if (!confirm('本当に全データを削除しますか？')) return;
   sleepHistory = []; pvtHistory = [];
-  saveWithBackup(); buildTimeChart(); renderCalendar();
+  saveWithBackup(); validateAndCleanData(); buildTimeChart(); renderCalendar();
   alert('すべてのデータを削除しました');
 });
 document.getElementById('btn-restore-backup').addEventListener('click', ()=>{
@@ -582,13 +629,107 @@ document.getElementById('btn-restore-backup').addEventListener('click', ()=>{
   } catch (e) { alert('復元に失敗しました: ' + e); }
 });
 
-// =========================
-// 起動時処理
-// =========================
+/* =========================
+   通知（Notification API）: 許可要求と簡易リマインダー
+   ========================= */
+document.getElementById('btn-request-notif').addEventListener('click', async ()=>{
+  if (!('Notification' in window)) { alert('このブラウザは通知をサポートしていません'); return; }
+  try {
+    const p = await Notification.requestPermission();
+    alert('通知許可: ' + p);
+  } catch (e) {
+    console.warn('Notification.requestPermission error', e);
+  }
+});
+
+/* =========================
+   カレンダー詳細モーダル（クリックで全データ一覧を表示）
+   ========================= */
+function openDetailModal(dateStr){
+  const modal = document.getElementById('detail-modal');
+  document.getElementById('detail-date').textContent = dateStr + ' の詳細';
+  const body = document.getElementById('detail-body');
+  body.innerHTML = '';
+
+  // sleep details
+  const sAgg = aggSleepMap[dateStr];
+  if (sAgg){
+    const header = document.createElement('h4');
+    header.textContent = `睡眠（${sAgg.count} 件）`;
+    body.appendChild(header);
+    sAgg.details.forEach((it, i)=>{
+      const div = document.createElement('div');
+      div.textContent = `${i+1}: ${it.hours!=null ? it.hours + ' h' : '(時間未記入)'} ` + (it.bedtime ? `(就寝 ${it.bedtime})` : '') + (it.waketime ? `(起床 ${it.waketime})` : '') + (it.createdAt ? ` — ${new Date(it.createdAt).toLocaleString()}` : '');
+      body.appendChild(div);
+    });
+    const avgDiv = document.createElement('div');
+    avgDiv.style.marginTop = '6px';
+    avgDiv.textContent = '平均: ' + (sAgg.avgHours != null ? sAgg.avgHours.toFixed(1) + ' h' : '—');
+    body.appendChild(avgDiv);
+  } else {
+    const no = document.createElement('div'); no.textContent = '睡眠データはありません';
+    body.appendChild(no);
+  }
+
+  // pvt details
+  const pAgg = aggPvtMap[dateStr];
+  if (pAgg){
+    const header = document.createElement('h4');
+    header.textContent = `PVT（${pAgg.count} 件）`;
+    body.appendChild(header);
+    pAgg.details.forEach((it, i)=>{
+      const div = document.createElement('div');
+      div.textContent = `${i+1}: ${it.avg!=null ? it.avg + ' ms' : '(平均未記入)'} / ラプス ${it.lapses!=null ? it.lapses : '-'} ` + (it.createdAt ? `— ${new Date(it.createdAt).toLocaleString()}` : '');
+      body.appendChild(div);
+      if (it.reactions && it.reactions.length){
+        const small = document.createElement('div');
+        small.style.fontSize='0.85em';
+        small.style.color='#666';
+        small.textContent = `  試行数: ${it.reactions.length}（反応時間の配列を保存）`;
+        body.appendChild(small);
+      }
+    });
+    const avgDiv = document.createElement('div');
+    avgDiv.style.marginTop = '6px';
+    avgDiv.textContent = '平均反応時間: ' + (pAgg.avgAvg != null ? Math.round(pAgg.avgAvg) + ' ms' : '—');
+    body.appendChild(avgDiv);
+  } else {
+    const no = document.createElement('div'); no.textContent = 'PVTデータはありません';
+    body.appendChild(no);
+  }
+
+  modal.style.display = 'flex';
+}
+document.getElementById('close-detail').addEventListener('click', ()=> document.getElementById('detail-modal').style.display='none');
+window.addEventListener('click', (e)=> { if (e.target.id === 'detail-modal') document.getElementById('detail-modal').style.display='none'; });
+
+/* =========================
+   起動時処理
+   ========================= */
 buildTimeChart();
 renderCalendar();
+/* PVT リマインダー（ページ読み込み時） */
+(function showDailyPVTReminder(){
+  const now = new Date();
+  const hour = now.getHours();
+  if (hour < 12 || hour > 23) return;
+  const today = getDateString(now);
+  if (!pvtHistory.some(r=>r.date === today)){
+    if (confirm('今日の PVT をまだ実施していません。今すぐ実施しますか？')) {
+      document.getElementById('btn-start-pvt').click();
+    } else {
+      if (Notification.permission === 'granted'){
+        new Notification('PVTのリマインド', { body: '今日の反応速度テストを実施してください（アプリ）' });
+      }
+    }
+  }
+})();
 
+/* =========================
+   初回アドバイス
+   ========================= */
 console.log("注意: localStorage は XSS による盗難のリスクがあるため、機密情報は保存しないでください。大規模データや同期が必要なら IndexedDB / サーバー同期を検討してください。");
+
 </script>
 </body>
 </html>
