@@ -35,6 +35,18 @@
 </head>
 <body>
 <header><h1>睡眠・PVT習慣アプリ</h1></header>
+
+<!-- 眠気評価モーダル -->
+<div id="sleepiness-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center;z-index:1000;">
+  <div style="background:#fff;padding:1.2rem;border-radius:10px;max-width:320px;margin:auto;text-align:center">
+    <h3>本日の眠気を評価</h3>
+    <p class="small muted">1: 全く眠くない ～ 5: 非常に眠い</p>
+    <div id="sleepiness-options" style="margin:1rem 0;"></div>
+    <button id="sleepiness-save">保存</button>
+    <button id="sleepiness-cancel" style="margin-left:1rem">キャンセル</button>
+    <p id="sleepiness-feedback" class="feedback"></p>
+  </div>
+</div>
 <div class="container">
 
   <div class="card">
@@ -120,17 +132,19 @@
 /* =========================
    データ構造とロード
    ========================= */
+
 const SKEY = "sleepHistory_v2";
 const PKEY = "pvtHistory_v2";
 const S_BACK = "sleepHistory_backup_v2";
 const P_BACK = "pvtHistory_backup_v2";
+const SLEEPINESS_KEY = "sleepinessHistory_v1";
 
-let sleepHistory = []; // raw entries: {date: 'YYYY-MM-DD', hours: number, bedtime?: 'HH:MM', waketime?: 'HH:MM', createdAt: iso }
-let pvtHistory = [];   // raw entries: {date: 'YYYY-MM-DD', avg: number, lapses: number, reactions: [...], createdAt: iso }
+let sleepHistory = [];
+let pvtHistory = [];
+let sleepinessHistory = []; // {date: 'YYYY-MM-DD', value: 1-5, createdAt: iso}
 
-// Aggregated views (derived)
-let aggSleepMap = {}; // date -> { avgHours, count, details: [hours,...] }
-let aggPvtMap = {};   // date -> { avgAvg, count, details: [{avg,lapses,reactions,createdAt}, ...] }
+let aggSleepMap = {};
+let aggPvtMap = {};
 
 function getDateString(d) { return d.toISOString().split('T')[0]; }
 function timeToHM(d){ return d.toTimeString().split(' ')[0].slice(0,5); }
@@ -140,6 +154,7 @@ function safeLoad() {
   try {
     sleepHistory = JSON.parse(localStorage.getItem(SKEY) || "[]");
     pvtHistory = JSON.parse(localStorage.getItem(PKEY) || "[]");
+    sleepinessHistory = JSON.parse(localStorage.getItem(SLEEPINESS_KEY) || "[]");
   } catch (e) {
     console.warn("localStorage 読み込みエラー。バックアップを試みます。", e);
     const sb = localStorage.getItem(S_BACK);
@@ -148,13 +163,14 @@ function safeLoad() {
       try {
         if (sb) sleepHistory = JSON.parse(sb);
         if (pb) pvtHistory = JSON.parse(pb);
+        sleepinessHistory = [];
         alert("破損データをバックアップから復元しました。");
       } catch (ee) {
         console.error("バックアップも破損しています：", ee);
-        sleepHistory = []; pvtHistory = [];
+        sleepHistory = []; pvtHistory = []; sleepinessHistory = [];
       }
     } else {
-      sleepHistory = []; pvtHistory = [];
+      sleepHistory = []; pvtHistory = []; sleepinessHistory = [];
     }
   }
   validateAndCleanData();
@@ -169,7 +185,6 @@ function validateAndCleanData(){
   // sanitize sleepHistory: keep valid entries only
   sleepHistory = (sleepHistory || []).filter(r => {
     if (!r || !r.date) return false;
-    // normalize numeric field name differences: support 'hours' or 'hours' or 'sleepDuration'
     if (r.hours == null && r.sleepDuration != null) r.hours = parseFloat(r.sleepDuration);
     if (typeof r.hours === 'string') r.hours = parseFloat(r.hours) || null;
     if (r.hours != null && (r.hours < 0 || r.hours > 48)) return false;
@@ -184,6 +199,13 @@ function validateAndCleanData(){
     return true;
   });
 
+  // sanitize sleepinessHistory
+  sleepinessHistory = (sleepinessHistory || []).filter(r => {
+    if (!r || !r.date || typeof r.value !== 'number') return false;
+    if (r.value < 1 || r.value > 5) return false;
+    return true;
+  });
+
   // rebuild aggregates
   aggSleepMap = {};
   for (let r of sleepHistory){
@@ -193,13 +215,10 @@ function validateAndCleanData(){
       aggSleepMap[d].details.push({ hours: r.hours, bedtime: r.bedtime||null, waketime: r.waketime||null, createdAt: r.createdAt||null });
       aggSleepMap[d].count++;
     } else {
-      // If hours null but times exist, we can't average hours; but keep entry with hours=null
       aggSleepMap[d].details.push({ hours: null, bedtime: r.bedtime||null, waketime: r.waketime||null, createdAt: r.createdAt||null });
-      // keep count to indicate multiple entries
       aggSleepMap[d].count++;
     }
   }
-  // compute avgHours where possible (exclude nulls)
   Object.keys(aggSleepMap).forEach(d=>{
     const vals = aggSleepMap[d].details.map(x=>x.hours).filter(v=>v!=null);
     if (vals.length) {
@@ -225,6 +244,7 @@ function validateAndCleanData(){
   // persist sanitized raw arrays (keep raw duplicates)
   localStorage.setItem(SKEY, JSON.stringify(sleepHistory));
   localStorage.setItem(PKEY, JSON.stringify(pvtHistory));
+  localStorage.setItem(SLEEPINESS_KEY, JSON.stringify(sleepinessHistory));
 }
 
 /* =========================
@@ -232,12 +252,11 @@ function validateAndCleanData(){
    ========================= */
 function saveWithBackup(){
   try {
-    // バックアップ作成（overwrite）
     localStorage.setItem(S_BACK, localStorage.getItem(SKEY) || "[]");
     localStorage.setItem(P_BACK, localStorage.getItem(PKEY) || "[]");
-    // 現在のデータ保存 (raw arrays)
     localStorage.setItem(SKEY, JSON.stringify(sleepHistory));
     localStorage.setItem(PKEY, JSON.stringify(pvtHistory));
+    localStorage.setItem(SLEEPINESS_KEY, JSON.stringify(sleepinessHistory));
     console.log("saved (and backed up).");
   } catch (e) {
     console.error("保存エラー:", e);
@@ -354,11 +373,56 @@ function buildTimeChart(){
    記録処理（重複チェック、上書き確認、手動入力）
    - raw arrays keep all entries; duplicates allowed
    ========================= */
+
 let tempSleepTime = null;
+// 眠気評価モーダル表示
+function showSleepinessModal(){
+  const modal = document.getElementById('sleepiness-modal');
+  const options = document.getElementById('sleepiness-options');
+  options.innerHTML = '';
+  for(let i=1;i<=5;i++){
+    const label = document.createElement('label');
+    label.style.margin = '0 8px';
+    label.innerHTML = `<input type="radio" name="sleepiness" value="${i}"> ${i}`;
+    options.appendChild(label);
+  }
+  document.getElementById('sleepiness-feedback').textContent = '';
+  modal.style.display = 'flex';
+}
+
+let sleepinessValue = null;
 
 document.getElementById('btn-sleep').addEventListener('click', ()=>{
+  showSleepinessModal();
+});
+
+document.getElementById('sleepiness-cancel').addEventListener('click', ()=>{
+  document.getElementById('sleepiness-modal').style.display = 'none';
+});
+
+document.getElementById('sleepiness-save').addEventListener('click', ()=>{
+  const radios = document.getElementsByName('sleepiness');
+  let val = null;
+  for(const r of radios){ if(r.checked) val = parseInt(r.value); }
+  if(!val){
+    document.getElementById('sleepiness-feedback').textContent = '評価を選択してください';
+    return;
+  }
+  sleepinessValue = val;
+  document.getElementById('sleepiness-modal').style.display = 'none';
+  // 保存処理
+  const today = getDateString(new Date());
+  // 既存データ上書き（同日）
+  const idx = sleepinessHistory.findIndex(r=>r.date===today);
+  if(idx>=0){
+    sleepinessHistory[idx].value = sleepinessValue;
+    sleepinessHistory[idx].createdAt = new Date().toISOString();
+  }else{
+    sleepinessHistory.push({date: today, value: sleepinessValue, createdAt: new Date().toISOString()});
+  }
+  saveWithBackup();
   tempSleepTime = new Date();
-  document.getElementById('sleep-feedback').textContent = '就寝記録しました（' + timeToHM(tempSleepTime) + '）';
+  document.getElementById('sleep-feedback').textContent = '眠気評価 ' + sleepinessValue + ' を記録しました（' + timeToHM(tempSleepTime) + '）';
 });
 
 document.getElementById('btn-wake').addEventListener('click', ()=>{
@@ -666,6 +730,17 @@ function openDetailModal(dateStr){
   const body = document.getElementById('detail-body');
   body.innerHTML = '';
 
+
+  // 眠気データ
+  const sleepiness = sleepinessHistory.find(r=>r.date===dateStr);
+  if(sleepiness){
+    const div = document.createElement('div');
+    div.className = 'small';
+    div.style.marginBottom = '8px';
+    div.textContent = `眠気評価: ${sleepiness.value}（1:全く眠くない～5:非常に眠い）`;
+    body.appendChild(div);
+  }
+
   // sleep details
   const sAgg = aggSleepMap[dateStr];
   if (sAgg){
@@ -733,6 +808,5 @@ console.log("注意: localStorage は XSS による盗難のリスクがある�
 </script>
 </body>
 </html>
-
 
 
