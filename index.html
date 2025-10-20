@@ -683,11 +683,15 @@ document.getElementById('delete-edit').addEventListener('click', ()=>{
    - インポート時: OK=上書き, Cancel=追加保存（重複を残す） を実現
    ========================= */
 document.getElementById('btn-export').addEventListener('click', ()=>{
-  const data = {sleepHistory, pvtHistory, exportedAt: new Date().toISOString()};
+  // include sleepinessHistory in exported payload
+  const data = {sleepHistory, pvtHistory, sleepinessHistory, exportedAt: new Date().toISOString()};
   const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = 'sleep_pvt_data.json'; a.click();
+  const filename = 'sleep_pvt_sleepiness_data.json';
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
+  // 明示的なフィードバックを表示
+  alert(`エクスポート完了：${filename}\n含まれるキー: sleepHistory, pvtHistory, sleepinessHistory`);
 });
 
 document.getElementById('btn-import').addEventListener('click', ()=>{
@@ -705,10 +709,12 @@ document.getElementById('btn-import').addEventListener('click', ()=>{
         if (confirm('インポートしたデータで上書きしますか？（キャンセルで追加保存／重複が残ります）')){
           sleepHistory = obj.sleepHistory || [];
           pvtHistory = obj.pvtHistory || [];
+          sleepinessHistory = obj.sleepinessHistory || [];
         } else {
           // 追加（両方残す）
           sleepHistory = (sleepHistory || []).concat(obj.sleepHistory || []);
           pvtHistory = (pvtHistory || []).concat(obj.pvtHistory || []);
+          sleepinessHistory = (sleepinessHistory || []).concat(obj.sleepinessHistory || []);
         }
         saveWithBackup(); validateAndCleanData(); buildTimeChart(); renderCalendar();
         alert('インポート完了');
