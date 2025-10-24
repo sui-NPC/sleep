@@ -148,6 +148,7 @@ const PKEY = "pvtHistory_v2";
 const S_BACK = "sleepHistory_backup_v2";
 const P_BACK = "pvtHistory_backup_v2";
 const SLEEPINESS_KEY = "sleepinessHistory_v1";
+const PENDING_SLEEP_KEY = "pendingSleepStart_v1";
 
 let sleepHistory = [];
 let pvtHistory = [];
@@ -155,6 +156,7 @@ let sleepinessHistory = []; // {date: 'YYYY-MM-DD', value: 1-5, createdAt: iso}
 
 let aggSleepMap = {};
 let aggPvtMap = {};
+let tempSleepTime = null; // persisted pending sleep start (restored from localStorage)
 
 function getDateString(d) { return d.toISOString().split('T')[0]; }
 function timeToHM(d){ return d.toTimeString().split(' ')[0].slice(0,5); }
@@ -279,6 +281,15 @@ function saveWithBackup(){
    ========================= */
 safeLoad();
 
+// restore pending sleep start (if user pressed おやすみ before and page was reloaded)
+try {
+  const pending = localStorage.getItem(PENDING_SLEEP_KEY);
+  if (pending) {
+    const d = new Date(pending);
+    if (!isNaN(d)) tempSleepTime = d;
+  }
+} catch (e) { console.warn('pending restore failed', e); }
+
 /* =========================
    Chart: 線グラフ（睡眠時間／PVT）と散布図（相関）
    - uses aggregates (avg per date)
@@ -380,11 +391,9 @@ function buildTimeChart(){
 }
 
 /* =========================
-   記録処理（重複チェック、上書き確認、手動入力）
-   - raw arrays keep all entries; duplicates allowed
-   ========================= */
-
-let tempSleepTime = null;
+  記録処理（重複チェック、上書き確認、手動入力）
+  - raw arrays keep all entries; duplicates allowed
+  ========================= */
 // 眠気評価モーダル表示
 function showSleepinessModal(){
   const modal = document.getElementById('sleepiness-modal');
@@ -402,9 +411,21 @@ function showSleepinessModal(){
 
 let sleepinessValue = null;
 
-document.getElementById('btn-sleep').addEventListener('click', ()=>{
-  showSleepinessModal();
-});
+  document.getElementById('btn-sleep').addEventListener('click', ()=>{
+    // Save pending sleep start immediately when user presses おやすみ
+    tempSleepTime = new Date();
+    try{
+      localStorage.setItem(PENDING_SLEEP_KEY, tempSleepTime.toISOString());
+    }catch(e){
+      console.warn('Failed to save pending sleep start', e);
+    }
+    // Optional short feedback in UI (if element exists)
+    const fb = document.getElementById('sleep-feedback');
+    if(fb){
+      fb.textContent = '就寝時刻を記録しました（' + timeToHM(tempSleepTime) + '）。眠気評価を入力してください。';
+    }
+    showSleepinessModal();
+  });
 
 document.getElementById('sleepiness-cancel').addEventListener('click', ()=>{
   document.getElementById('sleepiness-modal').style.display = 'none';
@@ -432,6 +453,7 @@ document.getElementById('sleepiness-save').addEventListener('click', ()=>{
   }
   saveWithBackup();
   tempSleepTime = new Date();
+  try { localStorage.setItem(PENDING_SLEEP_KEY, tempSleepTime.toISOString()); } catch(e){console.warn('pending save failed', e);} 
   document.getElementById('sleep-feedback').textContent = '眠気評価 ' + sleepinessValue + ' を記録しました（' + timeToHM(tempSleepTime) + '）';
 });
 
@@ -460,8 +482,9 @@ document.getElementById('btn-wake').addEventListener('click', ()=>{
     const diffH = (wake - tempSleepTime) / 1000 / 3600;
     const recDate = getDateString(wake); // record by wake date
     // push raw entry (duplicates allowed)
-    sleepHistory.push({date: recDate, hours: parseFloat(diffH.toFixed(1)), bedtime: timeToHM(tempSleepTime), waketime: timeToHM(wake), createdAt: new Date().toISOString()});
-    tempSleepTime = null;
+  sleepHistory.push({date: recDate, hours: parseFloat(diffH.toFixed(1)), bedtime: timeToHM(tempSleepTime), waketime: timeToHM(wake), createdAt: new Date().toISOString()});
+  tempSleepTime = null;
+  try { localStorage.removeItem(PENDING_SLEEP_KEY); } catch(e){console.warn('pending remove failed', e);} 
     saveWithBackup(); validateAndCleanData(); buildTimeChart();
     document.getElementById('sleep-feedback').textContent = `睡眠時間 ${diffH.toFixed(1)} 時間として保存しました。`;
   }
@@ -836,5 +859,4 @@ console.log("注意: localStorage は XSS による盗難のリスクがある�
 </script>
 </body>
 </html>
-
 
