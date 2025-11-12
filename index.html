@@ -52,7 +52,6 @@
   <div class="card">
     <h2>主要グラフ</h2>
     <canvas id="timeChart" height="160"></canvas>
-    <div id="corr-area" class="small muted"></div>
   </div>
 
   <div class="card">
@@ -291,7 +290,7 @@ try {
 } catch (e) { console.warn('pending restore failed', e); }
 
 /* =========================
-   Chart: 線グラフ（睡眠時間／PVT）と散布図（相関）
+   Chart: 線グラフ（睡眠時間／PVT）
    - uses aggregates (avg per date)
    ========================= */
 const timeCtx = document.getElementById('timeChart').getContext('2d');
@@ -312,14 +311,6 @@ function buildTimeChart(){
     return rec && rec.avgAvg != null ? parseFloat(rec.avgAvg.toFixed(1)) : null;
   });
 
-  // scatter pairs from dates where both exist and not null
-  const pairs = [];
-  dates.forEach(d=>{
-    const s = aggSleepMap[d] && aggSleepMap[d].avgHours != null ? aggSleepMap[d].avgHours : null;
-    const p = aggPvtMap[d] && aggPvtMap[d].avgAvg != null ? aggPvtMap[d].avgAvg : null;
-    if (s != null && p != null) pairs.push({x: s, y: p});
-  });
-
   if (!timeChart){
     timeChart = new Chart(timeCtx, {
       type: 'line',
@@ -327,8 +318,7 @@ function buildTimeChart(){
         labels: dates,
         datasets: [
           { type: 'line', label: '睡眠時間 (h)', data: sleepData, yAxisID:'y1', borderColor: '#2d7be8', spanGaps: true, tension:0.2 },
-          { type: 'line', label: '反応時間 (ms)', data: pvtData, yAxisID:'y2', borderColor: '#e64c3c', spanGaps: true, tension:0.2 },
-          { type: 'scatter', label: '散布（睡眠 vs PVT）', data: pairs, xAxisID: 'xSleep', yAxisID: 'yPvt', backgroundColor: '#8e44ad', pointRadius:4 }
+          { type: 'line', label: '反応時間 (ms)', data: pvtData, yAxisID:'y2', borderColor: '#e64c3c', spanGaps: true, tension:0.2 }
         ]
       },
       options: {
@@ -336,56 +326,15 @@ function buildTimeChart(){
         stacked: false,
         scales: {
           y1: { type: 'linear', position: 'left', min:0, max:12, title:{display:true,text:'睡眠時間 (h)'} },
-          y2: { type: 'linear', position: 'right', min:0, max:1000, title:{display:true,text:'反応時間 (ms)'} },
-          x: { display: false },
-          xSleep: { display: false, type: 'linear', position: 'bottom' },
-          yPvt: { display: false, type: 'linear', position: 'right' }
+          y2: { type: 'linear', position: 'right', min:0, max:1000, title:{display:true,text:'反応時間 (ms)'} }
         },
         plugins: { legend: { display: true } }
-      },
-      plugins: [{
-        id: 'regressionLine',
-        afterDatasetsDraw(chart){
-          const scatterDs = chart.data.datasets.find(ds => ds.type === 'scatter');
-          if (!scatterDs || scatterDs.data.length < 2) return;
-          const xs = scatterDs.data.map(p => p.x);
-          const ys = scatterDs.data.map(p => p.y);
-          try {
-            const corr = ss.sampleCorrelation(xs, ys);
-            const lr = ss.linearRegression(ss.zip(xs, ys));
-            const line = ss.linearRegressionLine(lr);
-            const xScale = chart.scales.xSleep;
-            const yScale = chart.scales.yPvt;
-            const minX = Math.min(...xs);
-            const maxX = Math.max(...xs);
-            const xPx1 = xScale.getPixelForValue(minX);
-            const xPx2 = xScale.getPixelForValue(maxX);
-            const yVal1 = line(minX);
-            const yVal2 = line(maxX);
-            const yPx1 = yScale.getPixelForValue(yVal1);
-            const yPx2 = yScale.getPixelForValue(yVal2);
-            const ctx = chart.ctx;
-            ctx.save();
-            ctx.beginPath();
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = 'rgba(46,204,113,0.9)';
-            ctx.moveTo(xPx1, yPx1);
-            ctx.lineTo(xPx2, yPx2);
-            ctx.stroke();
-            ctx.restore();
-            document.getElementById('corr-area').textContent =
-              `相関 (Pearson): ${corr===null? '計算不可' : corr.toFixed(3)}　回帰: y = ${lr.m.toFixed(2)}x + ${lr.b.toFixed(1)} （x=睡眠時間, y=反応時間 ms）`;
-          } catch (e) {
-            console.error("回帰線描画エラー:", e);
-          }
-        }
-      }]
+      }
     });
   } else {
     timeChart.data.labels = dates;
     timeChart.data.datasets[0].data = sleepData;
     timeChart.data.datasets[1].data = pvtData;
-    timeChart.data.datasets[2].data = pairs;
     timeChart.update();
   }
 }
@@ -859,4 +808,3 @@ console.log("注意: localStorage は XSS による盗難のリスクがある�
 </script>
 </body>
 </html>
-
