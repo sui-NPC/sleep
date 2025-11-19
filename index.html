@@ -317,8 +317,40 @@ function buildTimeChart(){
       data: {
         labels: dates,
         datasets: [
-          { type: 'line', label: '睡眠時間 (h)', data: sleepData, yAxisID:'y1', borderColor: '#2d7be8', spanGaps: true, tension:0.2 },
-          { type: 'line', label: '反応時間 (ms)', data: pvtData, yAxisID:'y2', borderColor: '#e64c3c', spanGaps: true, tension:0.2 }
+          { 
+            type: 'line', 
+            label: '睡眠時間 (h)', 
+            data: sleepData, 
+            yAxisID:'y1', 
+            borderColor: '#000000', 
+            backgroundColor: '#000000',
+            borderWidth: 2,
+            borderDash: [],
+            pointStyle: 'circle',
+            pointRadius: 4,
+            pointBorderColor: '#000000',
+            pointBackgroundColor: '#ffffff',
+            pointBorderWidth: 2,
+            spanGaps: true, 
+            tension:0.2 
+          },
+          { 
+            type: 'line', 
+            label: '反応時間 (ms)', 
+            data: pvtData, 
+            yAxisID:'y2', 
+            borderColor: '#000000', 
+            backgroundColor: '#000000',
+            borderWidth: 2,
+            borderDash: [5, 5],
+            pointStyle: 'rect',
+            pointRadius: 4,
+            pointBorderColor: '#000000',
+            pointBackgroundColor: '#ffffff',
+            pointBorderWidth: 2,
+            spanGaps: true, 
+            tension:0.2 
+          }
         ]
       },
       options: {
