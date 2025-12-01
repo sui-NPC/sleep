@@ -564,7 +564,7 @@ const btnCancelPvt = document.getElementById('btn-cancel-pvt');
 let pvtRunning = false;
 let pvtCancelHandler = null;
 
-btnStartPvt.addEventListener('click', ()=> startPVT(15));
+btnStartPvt.addEventListener('click', ()=> startPVT());
 btnCancelPvt.addEventListener('click', ()=> {
   if (pvtRunning) {
     pvtRunning = false;
@@ -580,27 +580,57 @@ btnCancelPvt.addEventListener('click', ()=> {
   }
 });
 
-function startPVT(totalTrials=15){
+function startPVT(){
   pvtFeedback.textContent='';
-  let trial = 0;
   let times = [];
+  let pvtStartTime = performance.now();
+  const pvtDurationMs = 2 * 60 * 1000; // 2 minutes in milliseconds
+  let trialCount = 0;
   pvtArea.textContent = '準備中...';
   pvtRunning = true;
   btnCancelPvt.disabled = false;
 
-  function runTrial(){
+  function updateTimer(){
     if (!pvtRunning) return;
-    if (trial >= totalTrials){
-      const avg = times.reduce((a,b)=>a+b,0)/times.length;
-      const lapses = times.filter(t=>t>500).length;
-      const today = getDateString(new Date());
-      // append as new raw PVT entry (do not force overwrite)
-      pvtHistory.push({date: today, avg: parseFloat(avg.toFixed(1)), lapses, reactions: times, createdAt: new Date().toISOString()});
-      saveWithBackup(); validateAndCleanData(); buildTimeChart();
+    const elapsedMs = performance.now() - pvtStartTime;
+    const remainingSec = Math.max(0, Math.ceil((pvtDurationMs - elapsedMs) / 1000));
+    // Update remaining time in pvt-area (unless waiting or showing click prompt)
+    if (pvtArea.textContent !== '待機中...' && pvtArea.textContent !== 'クリック！') {
+      pvtArea.textContent = `残り時間: ${remainingSec}秒`;
+    }
+    if (elapsedMs >= pvtDurationMs) {
+      finishPVT(times);
+    } else {
+      setTimeout(updateTimer, 100);
+    }
+  }
+
+  function finishPVT(times){
+    pvtRunning = false;
+    if (times.length === 0) {
       pvtArea.textContent = '完了';
-      pvtFeedback.textContent = `平均: ${avg.toFixed(1)}ms, ラプス: ${lapses}回`;
+      pvtFeedback.textContent = 'クリック回数: 0 回。テストを再度実行してください。';
       btnCancelPvt.disabled = true;
       pvtArea.onclick = null;
+      return;
+    }
+    const avg = times.reduce((a,b)=>a+b,0) / times.length;
+    const lapses = times.filter(t=>t>500).length;
+    const today = getDateString(new Date());
+    // append as new raw PVT entry (do not force overwrite)
+    pvtHistory.push({date: today, avg: parseFloat(avg.toFixed(1)), lapses, reactions: times, createdAt: new Date().toISOString()});
+    saveWithBackup(); validateAndCleanData(); buildTimeChart();
+    pvtArea.textContent = '完了';
+    pvtFeedback.textContent = `クリック回数: ${times.length}回、平均: ${avg.toFixed(1)}ms、ラプス: ${lapses}回`;
+    btnCancelPvt.disabled = true;
+    pvtArea.onclick = null;
+  }
+
+  function runTrial(){
+    if (!pvtRunning) return;
+    const elapsedMs = performance.now() - pvtStartTime;
+    if (elapsedMs >= pvtDurationMs) {
+      finishPVT(times);
       return;
     }
     pvtArea.textContent = '待機中...';
@@ -608,12 +638,17 @@ function startPVT(totalTrials=15){
     const delay = Math.random()*3000 + 1500;
     setTimeout(()=>{
       if (!pvtRunning) return;
+      const elapsedMs2 = performance.now() - pvtStartTime;
+      if (elapsedMs2 >= pvtDurationMs) {
+        finishPVT(times);
+        return;
+      }
       pvtArea.textContent = 'クリック！';
       pvtCancelHandler = function handler(){
         const rt = performance.now() - start;
         times.push(rt);
-        trial++;
-        pvtFeedback.textContent = `試行 ${trial} = ${rt.toFixed(0)} ms`;
+        trialCount++;
+        pvtFeedback.textContent = `試行 ${trialCount} = ${rt.toFixed(0)} ms`;
         pvtArea.removeEventListener('click', handler);
         pvtArea.onclick = null;
         runTrial();
@@ -622,7 +657,9 @@ function startPVT(totalTrials=15){
       pvtArea.addEventListener('click', pvtCancelHandler);
     }, delay);
   }
+  
   runTrial();
+  updateTimer();
 }
 
 /* =========================
