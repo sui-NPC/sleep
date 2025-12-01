@@ -311,48 +311,53 @@ function buildTimeChart(){
     return rec && rec.avgAvg != null ? parseFloat(rec.avgAvg.toFixed(1)) : null;
   });
 
+  // preserve previous hidden state (legend toggles) when rebuilding
+  const prevHidden = timeChart ? (timeChart.data.datasets || []).map(d=>!!d.hidden) : [];
+
+  const datasets = [
+    {
+      type: 'line',
+      label: '睡眠時間 (h)',
+      data: sleepData,
+      yAxisID: 'y1',
+      borderColor: '#2d7be8',
+      backgroundColor: '#2d7be8',
+      borderWidth: 2,
+      borderDash: [],
+      pointStyle: 'circle',
+      pointRadius: 4,
+      pointBorderColor: '#2d7be8',
+      pointBackgroundColor: '#ffffff',
+      pointBorderWidth: 2,
+      spanGaps: true,
+      tension: 0.2
+    },
+    {
+      type: 'line',
+      label: '反応時間 (ms)',
+      data: pvtData,
+      yAxisID: 'y2',
+      borderColor: '#e64c3c',
+      backgroundColor: '#e64c3c',
+      borderWidth: 2,
+      borderDash: [5,5],
+      pointStyle: 'rect',
+      pointRadius: 4,
+      pointBorderColor: '#e64c3c',
+      pointBackgroundColor: '#ffffff',
+      pointBorderWidth: 2,
+      spanGaps: true,
+      tension: 0.2
+    }
+  ];
+
+  // apply preserved hidden flags if present
+  datasets.forEach((ds, i) => { if (typeof prevHidden[i] !== 'undefined') ds.hidden = prevHidden[i]; });
+
   if (!timeChart){
     timeChart = new Chart(timeCtx, {
       type: 'line',
-      data: {
-        labels: dates,
-        datasets: [
-          { 
-            type: 'line', 
-            label: '睡眠時間 (h)', 
-            data: sleepData, 
-            yAxisID:'y1', 
-            borderColor: '#000000', 
-            backgroundColor: '#000000',
-            borderWidth: 2,
-            borderDash: [],
-            pointStyle: 'circle',
-            pointRadius: 4,
-            pointBorderColor: '#000000',
-            pointBackgroundColor: '#ffffff',
-            pointBorderWidth: 2,
-            spanGaps: true, 
-            tension:0.2 
-          },
-          { 
-            type: 'line', 
-            label: '反応時間 (ms)', 
-            data: pvtData, 
-            yAxisID:'y2', 
-            borderColor: '#000000', 
-            backgroundColor: '#000000',
-            borderWidth: 2,
-            borderDash: [5, 5],
-            pointStyle: 'rect',
-            pointRadius: 4,
-            pointBorderColor: '#000000',
-            pointBackgroundColor: '#ffffff',
-            pointBorderWidth: 2,
-            spanGaps: true, 
-            tension:0.2 
-          }
-        ]
-      },
+      data: { labels: dates, datasets },
       options: {
         interaction: { mode: 'index', intersect: false },
         stacked: false,
@@ -360,13 +365,44 @@ function buildTimeChart(){
           y1: { type: 'linear', position: 'left', min:0, max:12, title:{display:true,text:'睡眠時間 (h)'} },
           y2: { type: 'linear', position: 'right', min:0, max:1000, title:{display:true,text:'反応時間 (ms)'} }
         },
-        plugins: { legend: { display: true } }
+        plugins: {
+          legend: {
+            display: true,
+            // ensure legend clicks toggle the correct dataset visibility
+            onClick: function(e, legendItem, legend) {
+              const index = legendItem.datasetIndex;
+              const ci = legend.chart;
+              if (!ci) return;
+              // toggle hidden state
+              ci.data.datasets[index].hidden = !ci.data.datasets[index].hidden;
+              ci.update();
+            }
+          }
+        }
       }
     });
   } else {
+    // update existing chart while preserving hidden flags
     timeChart.data.labels = dates;
-    timeChart.data.datasets[0].data = sleepData;
-    timeChart.data.datasets[1].data = pvtData;
+    // replace dataset contents but keep any existing hidden flags if possible
+    timeChart.data.datasets.forEach((ds, i) => {
+      if (datasets[i]) {
+        ds.data = datasets[i].data;
+        ds.label = datasets[i].label;
+        ds.borderColor = datasets[i].borderColor;
+        ds.backgroundColor = datasets[i].backgroundColor;
+        ds.borderDash = datasets[i].borderDash;
+        ds.pointStyle = datasets[i].pointStyle;
+        ds.pointBorderColor = datasets[i].pointBorderColor;
+        ds.pointBackgroundColor = datasets[i].pointBackgroundColor;
+        ds.spanGaps = datasets[i].spanGaps;
+        ds.tension = datasets[i].tension;
+      }
+    });
+    // if number of datasets changed, replace entirely
+    if (timeChart.data.datasets.length !== datasets.length){
+      timeChart.data.datasets = datasets;
+    }
     timeChart.update();
   }
 }
